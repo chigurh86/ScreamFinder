@@ -32,8 +32,8 @@ export async function pickAndUploadAvatar(userId: string): Promise<string | null
 
   const supabase = getSupabaseClient();
 
-  // Upload using base64 on mobile, fetch+blob on web
-  if (Platform.OS !== 'web' && asset.base64) {
+  // Always prefer base64 upload when available (works on all platforms)
+  if (asset.base64) {
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(fileName, decode(asset.base64), {
@@ -41,7 +41,8 @@ export async function pickAndUploadAvatar(userId: string): Promise<string | null
         upsert: true,
       });
     if (uploadError) throw new Error(uploadError.message);
-  } else {
+  } else if (Platform.OS === 'web') {
+    // Web fallback: fetch blob from URI
     const response = await fetch(asset.uri);
     const blob = await response.blob();
     const { error: uploadError } = await supabase.storage
@@ -51,6 +52,9 @@ export async function pickAndUploadAvatar(userId: string): Promise<string | null
         upsert: true,
       });
     if (uploadError) throw new Error(uploadError.message);
+  } else {
+    // Mobile fallback without base64: read file as base64
+    throw new Error('Unable to process image. Please try again.');
   }
 
   // Get public URL
