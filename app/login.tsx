@@ -524,12 +524,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 14,
-    height: 52,
+    height: 56,
     gap: 10,
   },
   input: {
     flex: 1,
-    fontSize: 17,
+    fontSize: 18,
     color: theme.textPrimary,
   },
   primaryButton: {
