@@ -473,8 +473,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   logo: {
-    width: 280,
-    height: 56,
+    width: 220,
+    height: 44,
     marginBottom: 10,
   },
   subtitle: {
