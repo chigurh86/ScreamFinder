@@ -519,7 +519,7 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.background,
+    backgroundColor: '#151519',
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.border,
