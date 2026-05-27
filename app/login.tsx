@@ -144,11 +144,14 @@ export default function LoginScreen() {
               style={styles.spookyEyes}
               contentFit="contain"
             />
-            <Image
-              source={require('../assets/images/knife-logo.png')}
-              style={styles.logo}
-              contentFit="contain"
-            />
+            <View style={styles.logoRow}>
+              <Image
+                source={require('../assets/images/knife-logo.png')}
+                style={styles.logo}
+                contentFit="contain"
+              />
+              <Text style={styles.appTitle}>ScreamFinder</Text>
+            </View>
             <Text style={styles.subtitle}>
               {mode === 'otp' || mode === 'resetPassword'
                 ? 'Enter the verification code'
@@ -472,10 +475,21 @@ const styles = StyleSheet.create({
     height: 80,
     marginBottom: 16,
   },
-  logo: {
-    width: 220,
-    height: 44,
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     marginBottom: 10,
+  },
+  logo: {
+    width: 36,
+    height: 36,
+  },
+  appTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: theme.primary,
+    letterSpacing: 1,
   },
   subtitle: {
     fontSize: 14,
