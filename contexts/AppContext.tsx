@@ -13,7 +13,7 @@ import {
 import type { IAPProduct } from '../services/iapService';
 
 const FREE_DAILY_LIMIT = 3;
-const FREE_FAVORITES_LIMIT = 10;
+const FREE_FAVORITES_LIMIT = 5;
 
 export interface IAPPricing {
   yearlyPrice: string;       // e.g. "$29.99" or "€27.99"

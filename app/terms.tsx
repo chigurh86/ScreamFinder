@@ -47,7 +47,7 @@ export default function TermsScreen() {
 
         <Text style={styles.sectionTitle}>4. Free and Pro Plans</Text>
         <Text style={styles.body}>
-          ScreamFinder offers a free tier with limited daily searches (3 per day) and a favorites limit (10 movies). The Pro plan removes these restrictions and provides additional features.
+          ScreamFinder offers a free tier with limited daily searches (3 per day) and a favorites limit (5 movies). The Pro plan removes these restrictions and provides additional features.
         </Text>
 
         <Text style={styles.sectionTitle}>5. Subscriptions and Payments</Text>
