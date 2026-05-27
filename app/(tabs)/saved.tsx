@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +16,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { theme } from '../../constants/theme';
 import { FREE_FAVORITES_LIMIT } from '../../constants/config';
 import { useApp } from '../../contexts/AppContext';
+import { useAlert } from '@/template';
 import UpgradeModal from '../../components/feature/UpgradeModal';
 import type { Movie } from '../../services/recommendationService';
 import { FREE_DAILY_LIMIT } from '../../constants/config';
@@ -25,11 +25,12 @@ export default function SavedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { savedMovies, removeSaved, clearAllSaved, isSubscribed, favoritesRemaining } = useApp();
+  const { showAlert } = useAlert();
   const [showUpgrade, setShowUpgrade] = useState(false);
 
   const handleRemove = useCallback(
     (movie: Movie) => {
-      Alert.alert(
+      showAlert(
         'Remove from Saved',
         `Remove "${movie.title}" from your saved list?`,
         [
@@ -45,7 +46,7 @@ export default function SavedScreen() {
         ]
       );
     },
-    [removeSaved]
+    [removeSaved, showAlert]
   );
 
   const handlePress = useCallback(
@@ -137,13 +138,13 @@ export default function SavedScreen() {
             <Pressable
               style={({ pressed }) => [styles.removeAllButton, pressed && { opacity: 0.7 }]}
               onPress={() => {
-                Alert.alert(
+                showAlert(
                   'Remove All Favorites',
                   `Are you sure you want to remove all ${savedMovies.length} saved titles?`,
                   [
                     { text: 'Cancel', style: 'cancel' },
                     {
-                      text: 'All',
+                      text: 'Remove All',
                       style: 'destructive',
                       onPress: () => {
                         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
