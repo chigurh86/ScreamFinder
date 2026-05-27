@@ -567,6 +567,18 @@ export default function ProfileScreen() {
           </Pressable>
         </Animated.View>
 
+        {/* TMDB Attribution */}
+        <View style={styles.tmdbAttribution}>
+          <Image
+            source={{ uri: 'https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg' }}
+            style={styles.tmdbLogo}
+            contentFit="contain"
+          />
+          <Text style={styles.tmdbText}>
+            This product uses the TMDB API but is not endorsed or certified by TMDB.
+          </Text>
+        </View>
+
         {/* Version */}
         <Text style={styles.versionText}>ScreamFinder v1.0.0</Text>
       </ScrollView>
@@ -944,6 +956,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: theme.primary,
+  },
+  tmdbAttribution: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginTop: 16,
+    gap: 8,
+  },
+  tmdbLogo: {
+    width: 120,
+    height: 20,
+  },
+  tmdbText: {
+    fontSize: 11,
+    color: theme.textMuted,
+    textAlign: 'center',
+    lineHeight: 16,
   },
   versionText: {
     textAlign: 'center',
