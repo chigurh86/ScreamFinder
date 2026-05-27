@@ -1,37 +1,45 @@
 {
   "expo": {
-    "name": "onspace-app",
-    "slug": "onspace-app",
+    "name": "ScreamFinder",
+    "slug": "screamfinder",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/logo.png",
-    "scheme": "onspaceapp",
-    "userInterfaceStyle": "automatic",
+    "icon": "./assets/images/app-store-icon.png",
+    "scheme": "screamfinder",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.fa.screamfinder",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "ScreamFinder needs access to your photo library to set a profile picture.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.fa.screamfinder",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/logo.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/app-store-icon.png",
+        "backgroundColor": "#0D0D0D"
       },
       "edgeToEdgeEnabled": true
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/logo.png"
+      "favicon": "./assets/images/app-store-icon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/logo.png",
+          "image": "./assets/images/spooky-eyes.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#0D0D0D"
         }
       ],
       "expo-web-browser"
