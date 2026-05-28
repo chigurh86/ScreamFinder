@@ -1,10 +1,25 @@
+import React, { useState, useCallback, useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AlertProvider, AuthProvider } from '@/template';
 import { AppProvider } from '../contexts/AppContext';
+import { AnimatedSplash } from '../components/feature/AnimatedSplash';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    SplashScreen.hideAsync();
+  }, []);
+
+  const handleSplashFinish = useCallback(() => {
+    setShowSplash(false);
+  }, []);
+
   return (
     <AlertProvider>
       <SafeAreaProvider>
@@ -37,6 +52,7 @@ export default function RootLayout() {
                 }}
               />
             </Stack>
+            {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
           </AppProvider>
         </AuthProvider>
       </SafeAreaProvider>
