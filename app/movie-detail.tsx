@@ -63,11 +63,17 @@ export default function MovieDetailScreen() {
   const hasPoster = movie.posterUrl && movie.posterUrl.length > 0;
 
   const handleToggleSave = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const wasSaved = saved;
     const success = toggleSave(movie);
     if (!success) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       setShowUpgrade(true);
       return;
+    }
+    if (wasSaved) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
     heartScale.value = withSpring(1.5, { damping: 4 }, () => {
       heartScale.value = withSpring(1);

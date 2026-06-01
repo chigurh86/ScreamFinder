@@ -30,16 +30,24 @@ export default function MovieCard({ movie, onPress, onSaveLimitReached }: MovieC
   }));
 
   const handleToggleSave = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const wasSaved = saved;
     const success = toggleSave(movie);
     if (!success) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       onSaveLimitReached?.();
       return;
+    }
+    if (wasSaved) {
+      // Unsaving - subtle light tick
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      // Saving - satisfying success notification
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
     heartScale.value = withSpring(1.4, { damping: 4 }, () => {
       heartScale.value = withSpring(1);
     });
-  }, [movie, toggleSave, heartScale, onSaveLimitReached]);
+  }, [movie, toggleSave, heartScale, onSaveLimitReached, saved]);
 
   const hasPoster = movie.posterUrl && movie.posterUrl.length > 0;
 

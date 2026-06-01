@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAlert } from '@/template';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
+import * as Haptics from 'expo-haptics';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { theme } from '../../constants/theme';
 import { Linking } from 'react-native';
@@ -46,6 +47,7 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
     setLoading(true);
     try {
       if (!iapInitialized) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         showAlert('Store Unavailable', 'Could not connect to the App Store. Please try again later.');
         return;
       }
@@ -83,12 +85,14 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
       // Refresh subscription status
       await checkSubscription();
 
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       showAlert('Welcome to Pro!', 'Your subscription is now active. Enjoy unlimited searches and favorites.');
       onClose();
     } catch (e: any) {
       console.error('[IAP] Purchase error:', e);
       const errMsg = e?.message || 'Purchase failed. Please try again.';
       if (!errMsg.includes('cancel')) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         showAlert('Purchase Failed', errMsg);
       }
     } finally {
@@ -124,6 +128,7 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
     } catch (e: any) {
       console.error(e);
       const errMsg = e?.message || 'Could not start checkout. Please try again.';
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       if (errMsg.toLowerCase().includes('already have an active subscription')) {
         showAlert('Already Subscribed', 'You already have an active subscription. Please restart the app to refresh your status.');
       } else {
@@ -135,6 +140,7 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
   };
 
   const handleUpgrade = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (useAppleIAP) {
       handleApplePurchase();
     } else {
@@ -143,10 +149,12 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
   };
 
   const handleRestorePurchases = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRestoring(true);
     try {
       const purchases = await restorePurchases();
       if (purchases.length === 0) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         showAlert('No Purchases Found', 'No previous Pro subscriptions were found for this Apple ID.');
         return;
       }
@@ -169,13 +177,16 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
       await finishTransaction(latest);
       await checkSubscription();
       if (data?.subscribed) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         showAlert('Restored!', 'Your Pro subscription has been restored successfully.');
         onClose();
       } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         showAlert('Subscription Expired', 'Your previous subscription has expired. Please subscribe again.');
       }
     } catch (e: any) {
       console.error('[IAP] Restore error:', e);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showAlert('Restore Failed', e?.message || 'Could not restore purchases. Please try again.');
     } finally {
       setRestoring(false);
