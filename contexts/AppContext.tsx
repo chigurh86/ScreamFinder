@@ -31,6 +31,8 @@ interface AppContextType {
   removeSaved: (title: string) => void;
   clearAllSaved: () => void;
   updateSavedMovies: (updates: Record<string, Partial<Movie>>) => void;
+  lastFavoritesRefresh: number | null;
+  setLastFavoritesRefresh: (timestamp: number) => void;
   searchHistory: string[];
   addSearchHistory: (query: string) => void;
   remainingSearches: number;
@@ -52,11 +54,13 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const SAVED_MOVIES_KEY = '@screamfinder_saved';
 const SEARCH_HISTORY_KEY = '@screamfinder_history';
+const LAST_REFRESH_KEY = '@screamfinder_last_refresh';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [savedMovies, setSavedMovies] = useState<Movie[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [lastFavoritesRefresh, setLastFavoritesRefresh] = useState<number | null>(null);
   const [searchCount, setSearchCount] = useState(0);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
@@ -112,12 +116,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Load saved movies from AsyncStorage
   useEffect(() => {
     (async () => {
-      const [savedData, historyData] = await Promise.all([
+      const [savedData, historyData, refreshData] = await Promise.all([
         AsyncStorage.getItem(SAVED_MOVIES_KEY),
         AsyncStorage.getItem(SEARCH_HISTORY_KEY),
+        AsyncStorage.getItem(LAST_REFRESH_KEY),
       ]);
       if (savedData) setSavedMovies(JSON.parse(savedData));
       if (historyData) setSearchHistory(JSON.parse(historyData));
+      if (refreshData) {
+        const ts = parseInt(refreshData, 10);
+        if (!isNaN(ts)) setLastFavoritesRefresh(ts);
+      }
     })();
   }, []);
 
@@ -212,6 +221,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory));
   }, [searchHistory]);
 
+  useEffect(() => {
+    if (lastFavoritesRefresh !== null) {
+      AsyncStorage.setItem(LAST_REFRESH_KEY, String(lastFavoritesRefresh));
+    }
+  }, [lastFavoritesRefresh]);
+
   const isSaved = useCallback(
     (title: string) => savedMovies.some((m) => m.title === title),
     [savedMovies]
@@ -297,6 +312,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         removeSaved,
         clearAllSaved,
         updateSavedMovies,
+        lastFavoritesRefresh,
+        setLastFavoritesRefresh,
         searchHistory,
         addSearchHistory,
         remainingSearches: remaining,

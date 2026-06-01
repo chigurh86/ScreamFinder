@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,25 @@ import type { Movie } from '../../services/recommendationService';
 import { FREE_DAILY_LIMIT } from '../../constants/config';
 import { fetchPostersAndProviders } from '../../services/posterService';
 
+function formatRelativeTime(timestamp: number | null): string {
+  if (!timestamp) return '';
+  const diffMs = Date.now() - timestamp;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+
+  if (diffSec < 30) return 'just now';
+  if (diffMin < 1) return 'less than a minute ago';
+  if (diffMin === 1) return '1 minute ago';
+  if (diffMin < 60) return `${diffMin} minutes ago`;
+  if (diffHr === 1) return '1 hour ago';
+  if (diffHr < 24) return `${diffHr} hours ago`;
+  if (diffDay === 1) return 'yesterday';
+  if (diffDay < 7) return `${diffDay} days ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
 export default function SavedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -33,10 +52,19 @@ export default function SavedScreen() {
     updateSavedMovies,
     isSubscribed,
     favoritesRemaining,
+    lastFavoritesRefresh,
+    setLastFavoritesRefresh,
   } = useApp();
   const { showAlert } = useAlert();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [, setTick] = useState(0);
+
+  // Re-render every minute so the relative timestamp stays current
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     if (savedMovies.length === 0 || refreshing) return;
@@ -70,6 +98,7 @@ export default function SavedScreen() {
       if (Object.keys(updates).length > 0) {
         updateSavedMovies(updates);
       }
+      setLastFavoritesRefresh(Date.now());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
       console.warn('Refresh error:', e);
@@ -77,7 +106,7 @@ export default function SavedScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [savedMovies, updateSavedMovies, refreshing]);
+  }, [savedMovies, updateSavedMovies, refreshing, setLastFavoritesRefresh]);
 
   const handleRemove = useCallback(
     (movie: Movie) => {
@@ -269,6 +298,20 @@ export default function SavedScreen() {
             paddingBottom: insets.bottom + 16,
           }}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ListHeaderComponent={
+            <View style={styles.refreshTimestamp}>
+              <Ionicons
+                name={lastFavoritesRefresh ? 'time-outline' : 'arrow-down'}
+                size={12}
+                color={theme.textMuted}
+              />
+              <Text style={styles.refreshTimestampText}>
+                {lastFavoritesRefresh
+                  ? `Streaming updated ${formatRelativeTime(lastFavoritesRefresh)}`
+                  : 'Pull down to refresh streaming'}
+              </Text>
+            </View>
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -468,6 +511,21 @@ const styles = StyleSheet.create({
   removeButton: {
     paddingHorizontal: 12,
     justifyContent: 'center',
+  },
+  refreshTimestamp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  refreshTimestampText: {
+    fontSize: 11,
+    color: theme.textMuted,
+    fontStyle: 'italic',
+    letterSpacing: 0.2,
   },
   emptyState: {
     flex: 1,
