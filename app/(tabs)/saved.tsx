@@ -289,41 +289,57 @@ export default function SavedScreen() {
           </Pressable>
         </View>
       ) : (
-        <FlatList
-          data={savedMovies}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingBottom: insets.bottom + 16,
-          }}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-          ListHeaderComponent={
-            <View style={styles.refreshTimestamp}>
+        <>
+          {/* Refresh Timestamp Bar - always visible above list */}
+          <Pressable
+            style={({ pressed }) => [styles.refreshBar, pressed && { opacity: 0.7 }]}
+            onPress={handleRefresh}
+            disabled={refreshing}
+          >
+            <View style={styles.refreshBarLeft}>
               <Ionicons
-                name={lastFavoritesRefresh ? 'time-outline' : 'arrow-down'}
-                size={12}
-                color={theme.textMuted}
+                name={lastFavoritesRefresh ? 'time-outline' : 'cloud-download-outline'}
+                size={14}
+                color={theme.accent}
               />
-              <Text style={styles.refreshTimestampText}>
-                {lastFavoritesRefresh
-                  ? `Streaming updated ${formatRelativeTime(lastFavoritesRefresh)}`
-                  : 'Pull down to refresh streaming'}
+              <Text style={styles.refreshBarText}>
+                {refreshing
+                  ? 'Refreshing streaming data...'
+                  : lastFavoritesRefresh
+                    ? `Streaming updated ${formatRelativeTime(lastFavoritesRefresh)}`
+                    : 'Pull down or tap to refresh streaming'}
               </Text>
             </View>
-          }
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={theme.primary}
-              colors={[theme.primary]}
-              progressBackgroundColor={theme.surface}
-              title="Refreshing streaming..."
-              titleColor={theme.textMuted}
+            <Ionicons
+              name="refresh"
+              size={16}
+              color={theme.textMuted}
+              style={refreshing ? styles.spinning : undefined}
             />
-          }
-        />
+          </Pressable>
+
+          <FlatList
+            data={savedMovies}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingBottom: insets.bottom + 16,
+            }}
+            ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={theme.primary}
+                colors={[theme.primary]}
+                progressBackgroundColor={theme.surface}
+                title="Refreshing streaming..."
+                titleColor={theme.textMuted}
+              />
+            }
+          />
+        </>
       )}
       <UpgradeModal
         visible={showUpgrade}
@@ -512,20 +528,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     justifyContent: 'center',
   },
-  refreshTimestamp: {
+  refreshBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    marginBottom: 10,
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.2)',
   },
-  refreshTimestampText: {
-    fontSize: 11,
-    color: theme.textMuted,
-    fontStyle: 'italic',
-    letterSpacing: 0.2,
+  refreshBarLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  refreshBarText: {
+    flex: 1,
+    fontSize: 12,
+    color: theme.textSecondary,
+    fontWeight: '500',
+  },
+  spinning: {
+    opacity: 0.4,
   },
   emptyState: {
     flex: 1,
