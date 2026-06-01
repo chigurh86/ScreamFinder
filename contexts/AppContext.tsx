@@ -30,6 +30,7 @@ interface AppContextType {
   favoritesRemaining: number;
   removeSaved: (title: string) => void;
   clearAllSaved: () => void;
+  updateSavedMovies: (updates: Record<string, Partial<Movie>>) => void;
   searchHistory: string[];
   addSearchHistory: (query: string) => void;
   remainingSearches: number;
@@ -237,6 +238,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSavedMovies([]);
   }, []);
 
+  const updateSavedMovies = useCallback(
+    (updates: Record<string, Partial<Movie>>) => {
+      setSavedMovies((prev) =>
+        prev.map((m) => {
+          const update = updates[m.title];
+          if (!update) return m;
+          return { ...m, ...update };
+        })
+      );
+    },
+    []
+  );
+
   const addSearchHistory = useCallback((query: string) => {
     setSearchHistory((prev) => {
       const filtered = prev.filter((q) => q !== query);
@@ -282,6 +296,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         favoritesRemaining,
         removeSaved,
         clearAllSaved,
+        updateSavedMovies,
         searchHistory,
         addSearchHistory,
         remainingSearches: remaining,

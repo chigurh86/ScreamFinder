@@ -81,21 +81,24 @@ export interface PosterResult {
 /**
  * Fetches poster URLs and verified streaming providers for an array of movies
  * via the poster edge function. Uses local cache to avoid redundant requests.
+ * Pass `{ forceRefresh: true }` to bypass the cache (for pull-to-refresh).
  */
 export async function fetchPostersAndProviders(
-  movies: Array<{ title: string; year: number; type: 'movie' | 'tv' }>
+  movies: Array<{ title: string; year: number; type: 'movie' | 'tv' }>,
+  options?: { forceRefresh?: boolean }
 ): Promise<PosterResult> {
   await Promise.all([loadPosterCache(), loadProviderCache()]);
 
   const posters: Record<string, string> = {};
   const providers: Record<string, string[]> = {};
   const toFetch: Array<{ title: string; year: number; type: string }> = [];
+  const forceRefresh = options?.forceRefresh === true;
 
-  // Check cache first
+  // Check cache first (skipped if forceRefresh)
   for (const movie of movies) {
     const key = getCacheKey(movie.title, movie.year, movie.type);
-    const hasPoster = posterCache[key];
-    const hasProvider = providerCache[key];
+    const hasPoster = forceRefresh ? undefined : posterCache[key];
+    const hasProvider = forceRefresh ? undefined : providerCache[key];
 
     if (hasPoster) {
       posters[movie.title] = hasPoster.value;
@@ -104,8 +107,8 @@ export async function fetchPostersAndProviders(
       providers[movie.title] = hasProvider.value;
     }
 
-    // If either is missing, fetch from server
-    if (!hasPoster || !hasProvider) {
+    // If either is missing or we are force-refreshing, fetch from server
+    if (forceRefresh || !hasPoster || !hasProvider) {
       toFetch.push(movie);
     }
   }

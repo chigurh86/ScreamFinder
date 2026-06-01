@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   Pressable,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,13 +21,63 @@ import { useAlert } from '@/template';
 import UpgradeModal from '../../components/feature/UpgradeModal';
 import type { Movie } from '../../services/recommendationService';
 import { FREE_DAILY_LIMIT } from '../../constants/config';
+import { fetchPostersAndProviders } from '../../services/posterService';
 
 export default function SavedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { savedMovies, removeSaved, clearAllSaved, isSubscribed, favoritesRemaining } = useApp();
+  const {
+    savedMovies,
+    removeSaved,
+    clearAllSaved,
+    updateSavedMovies,
+    isSubscribed,
+    favoritesRemaining,
+  } = useApp();
   const { showAlert } = useAlert();
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    if (savedMovies.length === 0 || refreshing) return;
+    setRefreshing(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const result = await fetchPostersAndProviders(
+        savedMovies.map((m) => ({
+          title: m.title,
+          year: m.year,
+          type: m.type,
+        })),
+        { forceRefresh: true }
+      );
+
+      const updates: Record<string, Partial<Movie>> = {};
+      for (const movie of savedMovies) {
+        const update: Partial<Movie> = {};
+        if (result.posters[movie.title]) {
+          update.posterUrl = result.posters[movie.title];
+        }
+        if (result.providers[movie.title]) {
+          update.streamingOn = result.providers[movie.title];
+          update.verifiedStreaming = true;
+        }
+        if (Object.keys(update).length > 0) {
+          updates[movie.title] = update;
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updateSavedMovies(updates);
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      console.warn('Refresh error:', e);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [savedMovies, updateSavedMovies, refreshing]);
 
   const handleRemove = useCallback(
     (movie: Movie) => {
@@ -218,6 +269,17 @@ export default function SavedScreen() {
             paddingBottom: insets.bottom + 16,
           }}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={theme.primary}
+              colors={[theme.primary]}
+              progressBackgroundColor={theme.surface}
+              title="Refreshing streaming..."
+              titleColor={theme.textMuted}
+            />
+          }
         />
       )}
       <UpgradeModal
