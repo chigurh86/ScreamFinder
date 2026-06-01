@@ -1,3 +1,4 @@
+
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
@@ -10,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { FlatList } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -22,6 +23,8 @@ import UpgradeModal from '../../components/feature/UpgradeModal';
 import type { Movie } from '../../services/recommendationService';
 import { FREE_DAILY_LIMIT } from '../../constants/config';
 import { fetchPostersAndProviders } from '../../services/posterService';
+
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
 function formatRelativeTime(timestamp: number | null): string {
   if (!timestamp) return '';
@@ -66,6 +69,7 @@ export default function SavedScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  // Define handleRefresh using useCallback before useFocusEffect
   const handleRefresh = useCallback(async () => {
     if (savedMovies.length === 0 || refreshing) return;
     setRefreshing(true);
@@ -107,6 +111,19 @@ export default function SavedScreen() {
       setRefreshing(false);
     }
   }, [savedMovies, updateSavedMovies, refreshing, setLastFavoritesRefresh]);
+
+  // Auto-refresh when screen is focused if data is older than 24 hours
+  useFocusEffect(
+    useCallback(() => {
+      if (savedMovies.length === 0 || refreshing) return;
+      const now = Date.now();
+      const isStale =
+        !lastFavoritesRefresh || now - lastFavoritesRefresh > TWENTY_FOUR_HOURS_MS;
+      if (isStale) {
+        handleRefresh();
+      }
+    }, [savedMovies.length, lastFavoritesRefresh, refreshing, handleRefresh])
+  );
 
   const handleRemove = useCallback(
     (movie: Movie) => {
