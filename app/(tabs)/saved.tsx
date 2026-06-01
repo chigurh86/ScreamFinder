@@ -306,8 +306,8 @@ export default function SavedScreen() {
                 {refreshing
                   ? 'Refreshing streaming data...'
                   : lastFavoritesRefresh
-                    ? `Streaming updated ${formatRelativeTime(lastFavoritesRefresh)}`
-                    : 'Pull down or tap to refresh streaming'}
+                    ? `Streaming options updated ${formatRelativeTime(lastFavoritesRefresh)}`
+                    : 'Pull down or tap to refresh streaming options'}
               </Text>
             </View>
             <Ionicons
