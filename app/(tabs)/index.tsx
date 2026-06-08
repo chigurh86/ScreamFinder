@@ -122,6 +122,7 @@ export default function HomeScreen() {
     isAtLimit,
     decrementSearches,
     isSubscribed,
+    savedMovies,
   } = useApp();
 
   const [query, setQuery] = useState('');
@@ -169,29 +170,38 @@ export default function HomeScreen() {
         if (result.providers[title]) setSearchedProviders(result.providers[title]);
       });
 
-      const { data, error, inputYear } = await fetchRecommendations(title, [], specifiedYear);
+      // Exclude already-saved favorites so we don't re-recommend them
+      const savedTitles = savedMovies.map((m) => m.title);
+      const savedTitlesLower = new Set(savedTitles.map((t) => t.toLowerCase()));
+
+      const { data, error, inputYear } = await fetchRecommendations(title, savedTitles, specifiedYear);
       if (error) {
         setErrorMessage(error);
       } else if (data) {
         if (inputYear) setSearchedYear(inputYear);
-        setResults(data);
-        enrichWithPosters(data).then((enriched) => setResults(enriched));
+        // Client-side safety net: filter out anything still matching a saved title
+        const filtered = data.filter((m) => !savedTitlesLower.has(m.title.toLowerCase()));
+        setResults(filtered);
+        enrichWithPosters(filtered).then((enriched) => setResults(enriched));
       }
       setIsLoading(false);
     },
-    [addSearchHistory, decrementSearches, isAtLimit]
+    [addSearchHistory, decrementSearches, isAtLimit, savedMovies]
   );
 
   const handleRefresh = useCallback(async () => {
     if (!searchedTitle || isLoading) return;
     setRefreshing(true);
-    const { data } = await fetchRecommendations(searchedTitle);
+    const savedTitles = savedMovies.map((m) => m.title);
+    const savedTitlesLower = new Set(savedTitles.map((t) => t.toLowerCase()));
+    const { data } = await fetchRecommendations(searchedTitle, savedTitles);
     if (data) {
-      setResults(data);
-      enrichWithPosters(data).then((enriched) => setResults(enriched));
+      const filtered = data.filter((m) => !savedTitlesLower.has(m.title.toLowerCase()));
+      setResults(filtered);
+      enrichWithPosters(filtered).then((enriched) => setResults(enriched));
     }
     setRefreshing(false);
-  }, [searchedTitle, isLoading]);
+  }, [searchedTitle, isLoading, savedMovies]);
 
   const handleSearch = useCallback(() => {
     if (!query.trim()) return;
@@ -212,10 +222,15 @@ export default function HomeScreen() {
     setIsLoadingMore(true);
 
     const existingTitles = results.map((m) => m.title);
-    const { data } = await fetchRecommendations(searchedTitle, existingTitles);
+    const savedTitles = savedMovies.map((m) => m.title);
+    const savedTitlesLower = new Set(savedTitles.map((t) => t.toLowerCase()));
+    // Combine existing results + saved favorites for exclusion (deduped)
+    const excludeList = Array.from(new Set([...existingTitles, ...savedTitles]));
+    const { data } = await fetchRecommendations(searchedTitle, excludeList);
     if (data) {
-      setResults((prev) => [...prev, ...data]);
-      enrichWithPosters(data).then((enriched) => {
+      const filtered = data.filter((m) => !savedTitlesLower.has(m.title.toLowerCase()));
+      setResults((prev) => [...prev, ...filtered]);
+      enrichWithPosters(filtered).then((enriched) => {
         setResults((prev) => {
           const enrichedMap = new Map(enriched.map((m) => [m.id, m]));
           return prev.map((m) => enrichedMap.get(m.id) || m);
@@ -224,7 +239,7 @@ export default function HomeScreen() {
     }
     setIsLoadingMore(false);
     loadingMoreRef.current = false;
-  }, [searchedTitle, results, isLoading]);
+  }, [searchedTitle, results, isLoading, savedMovies]);
 
   const handleScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
