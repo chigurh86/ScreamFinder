@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -109,15 +110,26 @@ export default function MovieDetailScreen() {
             )}
             <View style={styles.heroOverlay} />
 
-            {/* Close button */}
-            <Pressable
-              style={[styles.closeButton, { top: insets.top + 12 }]}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </Pressable>
           </View>
         </Animated.View>
+
+        {/* Close button - rendered outside hero so it stays on top across all platforms */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.closeButton,
+            { top: Math.max(insets.top, Platform.OS === 'web' ? 16 : 8) + 12 },
+            pressed && styles.closeButtonPressed,
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.back();
+          }}
+          hitSlop={16}
+          accessibilityLabel="Close movie details"
+          accessibilityRole="button"
+        >
+          <Ionicons name="close" size={26} color="#fff" />
+        </Pressable>
 
         {/* Content */}
         <View style={styles.contentContainer}>
@@ -324,13 +336,26 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     position: 'absolute',
-    left: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(13, 13, 13, 0.85)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    zIndex: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 10,
+  },
+  closeButtonPressed: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+    transform: [{ scale: 0.92 }],
   },
   contentContainer: {
     marginTop: -40,
