@@ -299,7 +299,6 @@ export default function HomeScreen() {
               style={styles.logo}
               contentFit="contain"
             />
-            <Text style={styles.appTitle}>ScreamFinder</Text>
           </Pressable>
         </View>
 
@@ -561,11 +560,10 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   logo: {
-    width: 32,
-    height: 32,
+    width: 168,
+    height: 42,
   },
   appTitle: {
     fontSize: 22,

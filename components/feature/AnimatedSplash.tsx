@@ -132,7 +132,6 @@ export function AnimatedSplash({ onFinish }: AnimatedSplashProps) {
             style={styles.knifeLogo}
             contentFit="contain"
           />
-          <Animated.Text style={styles.title}>ScreamFinder</Animated.Text>
         </View>
         <Animated.Text style={styles.tagline}>Find your next nightmare</Animated.Text>
       </Animated.View>
@@ -182,12 +181,12 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'center',
     marginBottom: 8,
   },
   knifeLogo: {
-    width: 32,
-    height: 32,
+    width: 256,
+    height: 64,
   },
   title: {
     fontSize: 30,

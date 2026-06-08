@@ -210,13 +210,11 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
 
           {/* Logo */}
           <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.logoContainer}>
-            <View style={styles.logoCircle}>
-              <Image
-                source={require('../../assets/images/knife-logo.png')}
-                style={styles.logo}
-                contentFit="contain"
-              />
-            </View>
+            <Image
+              source={require('../../assets/images/knife-logo.png')}
+              style={styles.logo}
+              contentFit="contain"
+            />
           </Animated.View>
 
           {/* Title */}
@@ -334,18 +332,11 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     marginBottom: 16,
-  },
-  logoCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(220, 38, 38, 0.15)',
     alignItems: 'center',
-    justifyContent: 'center',
   },
   logo: {
-    width: 36,
-    height: 36,
+    width: 200,
+    height: 50,
   },
   title: {
     fontSize: 22,

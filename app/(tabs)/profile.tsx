@@ -259,7 +259,6 @@ export default function ProfileScreen() {
             style={styles.logo}
             contentFit="contain"
           />
-          <Text style={styles.headerTitle}>ScreamFinder</Text>
         </View>
 
         {/* Profile Card */}
@@ -599,8 +598,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   logo: {
-    width: 28,
-    height: 28,
+    width: 152,
+    height: 38,
   },
   headerTitle: {
     fontSize: 20,

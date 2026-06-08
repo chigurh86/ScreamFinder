@@ -150,7 +150,6 @@ export default function LoginScreen() {
                 style={styles.logo}
                 contentFit="contain"
               />
-              <Text style={styles.appTitle}>ScreamFinder</Text>
             </View>
             <Text style={styles.subtitle}>
               {mode === 'otp' || mode === 'resetPassword'
@@ -478,12 +477,12 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'center',
     marginBottom: 10,
   },
   logo: {
-    width: 36,
-    height: 36,
+    width: 232,
+    height: 58,
   },
   appTitle: {
     fontSize: 28,
