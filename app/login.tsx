@@ -523,7 +523,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 14,
-    height: 56,
+    height: 64,
     gap: 10,
   },
   input: {
@@ -534,7 +534,7 @@ const styles = StyleSheet.create({
   primaryButton: {
     backgroundColor: theme.primary,
     borderRadius: theme.radius.md,
-    height: 52,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 4,

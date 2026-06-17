@@ -639,7 +639,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    height: 52,
+    height: 60,
     color: theme.textPrimary,
     fontSize: 17,
     paddingLeft: 4,
@@ -651,7 +651,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    height: 50,
+    height: 58,
   },
   searchButtonPressed: {
     backgroundColor: theme.primaryDark,
