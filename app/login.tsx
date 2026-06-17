@@ -523,7 +523,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 14,
-    height: 76,
+    height: 68,
     gap: 10,
   },
   input: {

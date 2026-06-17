@@ -629,7 +629,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 16,
-    height: 72,
+    height: 64,
   },
   searchIcon: {
     marginRight: 12,
