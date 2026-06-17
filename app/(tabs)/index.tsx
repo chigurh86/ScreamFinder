@@ -30,6 +30,7 @@ import Animated, {
 import { theme } from '../../constants/theme';
 import { FREE_DAILY_LIMIT } from '../../constants/config';
 import { useApp } from '../../contexts/AppContext';
+import { useAuth } from '@/template';
 import { fetchRecommendations, enrichWithPosters } from '../../services/recommendationService';
 import type { Movie } from '../../services/recommendationService';
 import MovieCard from '../../components/feature/MovieCard';
@@ -116,6 +117,7 @@ function getRandomSuggestions() {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const {
     addSearchHistory,
     remainingSearches,
@@ -150,7 +152,12 @@ export default function HomeScreen() {
   const doSearch = useCallback(
     async (title: string, specifiedYear?: number | null) => {
       if (isAtLimit) {
-        setShowUpgrade(true);
+        if (!user) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          router.push('/login');
+        } else {
+          setShowUpgrade(true);
+        }
         return;
       }
 
@@ -186,7 +193,7 @@ export default function HomeScreen() {
       }
       setIsLoading(false);
     },
-    [addSearchHistory, decrementSearches, isAtLimit, savedMovies]
+    [addSearchHistory, decrementSearches, isAtLimit, savedMovies, user, router]
   );
 
   const handleRefresh = useCallback(async () => {
@@ -385,7 +392,7 @@ export default function HomeScreen() {
             <Text style={styles.remainingText}>
               {isSubscribed
                 ? 'Pro \u2014 Unlimited searches'
-                : `${remainingSearches} free ${remainingSearches === 1 ? 'search' : 'searches'} remaining today`}
+                : `${remainingSearches} free ${remainingSearches === 1 ? 'search' : 'searches'} remaining today${!user ? ' \u2014 sign in for more' : ''}`}
             </Text>
           ) : null}
         </View>

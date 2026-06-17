@@ -43,7 +43,9 @@ export default function LoginScreen() {
     const { error } = await signInWithPassword(email.trim(), password);
     if (error) {
       showAlert('Sign In Failed', error);
+      return;
     }
+    router.replace('/(tabs)');
   };
 
   const handleForgotSendOTP = async () => {
@@ -81,7 +83,9 @@ export default function LoginScreen() {
     });
     if (error) {
       showAlert('Reset Failed', error);
+      return;
     }
+    router.replace('/(tabs)');
   };
 
   const handleSendOTP = async () => {
@@ -122,7 +126,9 @@ export default function LoginScreen() {
     });
     if (error) {
       showAlert('Verification Failed', error);
+      return;
     }
+    router.replace('/(tabs)');
   };
 
   return (

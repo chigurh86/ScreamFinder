@@ -261,6 +261,31 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {/* Guest Sign-In Banner */}
+        {!user ? (
+          <Animated.View entering={FadeInDown.duration(400)}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.guestBanner,
+                pressed && { opacity: 0.88 },
+              ]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push('/login');
+              }}
+            >
+              <Ionicons name="log-in-outline" size={22} color="#fff" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.guestBannerTitle}>Sign in to ScreamFinder</Text>
+                <Text style={styles.guestBannerSubtitle}>
+                  Unlock unlimited searches, sync favorites, and access Pro features.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#fff" />
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
         {/* Profile Card */}
         <Animated.View entering={FadeInDown.duration(400)} style={styles.profileCard}>
           <Pressable
@@ -316,7 +341,8 @@ export default function ProfileScreen() {
           </View>
         </Animated.View>
 
-        {/* Subscription Card */}
+        {/* Subscription Card - only when signed in */}
+        {user ? (
         <Animated.View
           entering={FadeInDown.delay(50).duration(400)}
           style={styles.subscriptionCard}
@@ -391,9 +417,10 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
         </Animated.View>
+        ) : null}
 
-        {/* Restore Purchases - iOS only */}
-        {useAppleIAP ? (
+        {/* Restore Purchases - iOS only and signed in */}
+        {user && useAppleIAP ? (
           <Animated.View entering={FadeInDown.delay(75).duration(400)} style={{ paddingHorizontal: 16, marginBottom: 16 }}>
             <Pressable
               style={({ pressed }) => [
@@ -443,6 +470,10 @@ export default function ProfileScreen() {
               ]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (!user) {
+                  router.push('/login');
+                  return;
+                }
                 if (useAppleIAP) {
                   handleApplePurchase();
                 } else {
@@ -552,17 +583,28 @@ export default function ProfileScreen() {
           ))}
         </Animated.View>
 
-        {/* Sign Out */}
+        {/* Sign Out / Sign In */}
         <Animated.View entering={FadeInDown.delay(450).duration(400)}>
           <Pressable
             style={({ pressed }) => [
               styles.signOutButton,
               pressed && { opacity: 0.7 },
             ]}
-            onPress={handleSignOut}
+            onPress={() => {
+              if (user) {
+                handleSignOut();
+              } else {
+                Haptics.selectionAsync();
+                router.push('/login');
+              }
+            }}
           >
-            <Ionicons name="log-out-outline" size={20} color={theme.primary} />
-            <Text style={styles.signOutText}>Sign Out</Text>
+            <Ionicons
+              name={user ? 'log-out-outline' : 'log-in-outline'}
+              size={20}
+              color={theme.primary}
+            />
+            <Text style={styles.signOutText}>{user ? 'Sign Out' : 'Sign In'}</Text>
           </Pressable>
         </Animated.View>
 
@@ -993,5 +1035,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginHorizontal: 16,
     marginTop: 6,
+  },
+  guestBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 8,
+    padding: 16,
+    backgroundColor: theme.primary,
+    borderRadius: theme.radius.md,
+  },
+  guestBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 2,
+  },
+  guestBannerSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.9)',
+    lineHeight: 16,
   },
 });
