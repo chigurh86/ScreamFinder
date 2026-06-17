@@ -629,6 +629,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 16,
+    height: 72,
   },
   searchIcon: {
     marginRight: 12,
@@ -639,10 +640,11 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    height: 60,
+    height: '100%',
     color: theme.textPrimary,
     fontSize: 17,
     paddingLeft: 4,
+    paddingVertical: 0,
   },
 
   searchButton: {
@@ -651,7 +653,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    height: 58,
+    height: 64,
   },
   searchButtonPressed: {
     backgroundColor: theme.primaryDark,
