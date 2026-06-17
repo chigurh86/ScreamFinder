@@ -542,7 +542,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 20,
+    fontSize: 22,
     color: theme.textPrimary,
     height: '100%',
     paddingVertical: 0,
