@@ -528,7 +528,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 20,
     color: theme.textPrimary,
     height: '100%',
     paddingVertical: 0,
