@@ -548,6 +548,10 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 22,
     color: theme.textPrimary,
+    // Remove default focus outline on web/native
+    ...(Platform.OS === 'web'
+      ? ({ outlineStyle: 'none', outlineWidth: 0, outlineColor: 'transparent' } as object)
+      : {}),
   },
   primaryButton: {
     backgroundColor: theme.primary,
