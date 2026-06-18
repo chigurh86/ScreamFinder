@@ -14,7 +14,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth, useAlert } from '@/template';
-import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
 
@@ -24,7 +23,6 @@ export default function LoginScreen() {
   const { sendOTP, verifyOTPAndLogin, signInWithPassword, operationLoading } =
     useAuth();
   const { showAlert } = useAlert();
-  const router = useRouter();
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -43,9 +41,7 @@ export default function LoginScreen() {
     const { error } = await signInWithPassword(email.trim(), password);
     if (error) {
       showAlert('Sign In Failed', error);
-      return;
     }
-    router.replace('/(tabs)');
   };
 
   const handleForgotSendOTP = async () => {
@@ -83,9 +79,7 @@ export default function LoginScreen() {
     });
     if (error) {
       showAlert('Reset Failed', error);
-      return;
     }
-    router.replace('/(tabs)');
   };
 
   const handleSendOTP = async () => {
@@ -126,9 +120,7 @@ export default function LoginScreen() {
     });
     if (error) {
       showAlert('Verification Failed', error);
-      return;
     }
-    router.replace('/(tabs)');
   };
 
   return (
@@ -152,19 +144,13 @@ export default function LoginScreen() {
               style={styles.spookyEyes}
               contentFit="contain"
             />
-            <Pressable
-              onPress={() => router.replace('/(tabs)')}
-              style={({ pressed }) => [styles.logoRow, pressed && { opacity: 0.7 }]}
-              accessibilityLabel="Go to search"
-              accessibilityRole="button"
-              hitSlop={12}
-            >
+            <View style={styles.logoRow}>
               <Image
                 source={require('../assets/images/knife-logo.png')}
                 style={styles.logo}
                 contentFit="contain"
               />
-            </Pressable>
+            </View>
             <Text style={styles.subtitle}>
               {mode === 'otp' || mode === 'resetPassword'
                 ? 'Enter the verification code'
@@ -537,20 +523,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 14,
-    height: 68,
+    height: 56,
     gap: 10,
   },
   input: {
     flex: 1,
-    fontSize: 22,
+    fontSize: 18,
     color: theme.textPrimary,
-    height: '100%',
-    paddingVertical: 0,
   },
   primaryButton: {
     backgroundColor: theme.primary,
     borderRadius: theme.radius.md,
-    height: 60,
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 4,

@@ -30,7 +30,6 @@ import Animated, {
 import { theme } from '../../constants/theme';
 import { FREE_DAILY_LIMIT } from '../../constants/config';
 import { useApp } from '../../contexts/AppContext';
-import { useAuth } from '@/template';
 import { fetchRecommendations, enrichWithPosters } from '../../services/recommendationService';
 import type { Movie } from '../../services/recommendationService';
 import MovieCard from '../../components/feature/MovieCard';
@@ -117,7 +116,6 @@ function getRandomSuggestions() {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
   const {
     addSearchHistory,
     remainingSearches,
@@ -152,12 +150,7 @@ export default function HomeScreen() {
   const doSearch = useCallback(
     async (title: string, specifiedYear?: number | null) => {
       if (isAtLimit) {
-        if (!user) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          router.push('/login');
-        } else {
-          setShowUpgrade(true);
-        }
+        setShowUpgrade(true);
         return;
       }
 
@@ -193,7 +186,7 @@ export default function HomeScreen() {
       }
       setIsLoading(false);
     },
-    [addSearchHistory, decrementSearches, isAtLimit, savedMovies, user, router]
+    [addSearchHistory, decrementSearches, isAtLimit, savedMovies]
   );
 
   const handleRefresh = useCallback(async () => {
@@ -392,7 +385,7 @@ export default function HomeScreen() {
             <Text style={styles.remainingText}>
               {isSubscribed
                 ? 'Pro \u2014 Unlimited searches'
-                : `${remainingSearches} free ${remainingSearches === 1 ? 'search' : 'searches'} remaining today${!user ? ' \u2014 sign in for more' : ''}`}
+                : `${remainingSearches} free ${remainingSearches === 1 ? 'search' : 'searches'} remaining today`}
             </Text>
           ) : null}
         </View>
@@ -636,7 +629,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 16,
-    height: 76,
   },
   searchIcon: {
     marginRight: 12,
@@ -647,11 +639,10 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    height: '100%',
+    height: 52,
     color: theme.textPrimary,
-    fontSize: 21,
+    fontSize: 17,
     paddingLeft: 4,
-    paddingVertical: 0,
   },
 
   searchButton: {
@@ -660,7 +651,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    height: 76,
+    height: 50,
   },
   searchButtonPressed: {
     backgroundColor: theme.primaryDark,

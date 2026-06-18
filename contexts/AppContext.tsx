@@ -55,7 +55,6 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const SAVED_MOVIES_KEY = '@screamfinder_saved';
 const SEARCH_HISTORY_KEY = '@screamfinder_history';
 const LAST_REFRESH_KEY = '@screamfinder_last_refresh';
-const GUEST_USAGE_KEY = '@screamfinder_guest_usage';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -134,27 +133,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Fetch avatar and daily usage from DB when user is available
   useEffect(() => {
     if (!user) {
-      // Guest mode - load daily search count from AsyncStorage
-      (async () => {
-        const today = new Date().toISOString().split('T')[0];
-        try {
-          const data = await AsyncStorage.getItem(GUEST_USAGE_KEY);
-          if (data) {
-            const parsed = JSON.parse(data);
-            if (parsed.date === today) {
-              setSearchCount(parsed.count || 0);
-            } else {
-              setSearchCount(0);
-            }
-          } else {
-            setSearchCount(0);
-          }
-        } catch {
-          setSearchCount(0);
-        }
-        setUsageLoaded(true);
-        setAvatarUrl(null);
-      })();
+      setSearchCount(0);
+      setUsageLoaded(true);
+      setAvatarUrl(null);
       return;
     }
 
@@ -293,21 +274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const decrementSearches = useCallback(async () => {
-    if (!user) {
-      // Guest tracking via AsyncStorage
-      const today = new Date().toISOString().split('T')[0];
-      const newCount = searchCount + 1;
-      try {
-        await AsyncStorage.setItem(
-          GUEST_USAGE_KEY,
-          JSON.stringify({ date: today, count: newCount })
-        );
-      } catch {
-        /* ignore */
-      }
-      setSearchCount(newCount);
-      return;
-    }
+    if (!user) return;
     const supabase = getSupabaseClient();
     const today = new Date().toISOString().split('T')[0];
 
@@ -332,7 +299,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       setSearchCount(1);
     }
-  }, [user, searchCount]);
+  }, [user]);
 
   return (
     <AppContext.Provider
