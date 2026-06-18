@@ -2,6 +2,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../constants/theme';
+import { captureException } from '../../services/errorReportingService';
 
 interface Props {
   children: ReactNode;
@@ -29,9 +30,13 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log to console for diagnostics; in production these can be forwarded
-    // to a remote error reporter.
+    // Log locally for diagnostics and forward to Sentry (production only,
+    // when EXPO_PUBLIC_SENTRY_DSN is configured) for remote tracking.
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    captureException(error, {
+      source: 'ErrorBoundary',
+      componentStack: errorInfo.componentStack,
+    });
     this.setState({ errorInfo });
   }
 

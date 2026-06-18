@@ -6,9 +6,14 @@ import { AlertProvider, AuthProvider } from '@/template';
 import { AppProvider } from '../contexts/AppContext';
 import { AnimatedSplash } from '../components/feature/AnimatedSplash';
 import { ErrorBoundary } from '../components/feature/ErrorBoundary';
+import { initErrorReporting } from '../services/errorReportingService';
 import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync();
+
+// Initialize Sentry as early as possible so it can capture even module-load
+// errors. Safe no-op if EXPO_PUBLIC_SENTRY_DSN is not configured.
+initErrorReporting();
 
 export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
