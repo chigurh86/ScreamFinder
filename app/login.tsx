@@ -540,7 +540,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 18,
-    height: 64,
+    height: 84,
     gap: 12,
   },
   input: {
