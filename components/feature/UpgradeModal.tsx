@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import { useAlert } from '@/template';
+import { useAlert, useAuth } from '@/template';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import * as Haptics from 'expo-haptics';
@@ -38,9 +38,11 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
   const [restoring, setRestoring] = useState(false);
   const { showAlert } = useAlert();
   const { checkSubscription, iapInitialized, iapPricing } = useApp();
+  const { user } = useAuth();
   const router = useRouter();
 
   const useAppleIAP = isIOSPlatform();
+  const isGuest = !user;
 
   // Apple IAP purchase flow
   const handleApplePurchase = async () => {
@@ -141,6 +143,11 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
 
   const handleUpgrade = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (isGuest) {
+      onClose();
+      setTimeout(() => router.push('/login'), 300);
+      return;
+    }
     if (useAppleIAP) {
       handleApplePurchase();
     } else {
@@ -260,7 +267,11 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={styles.upgradeButtonText}>
-                  {useAppleIAP ? 'Subscribe with Apple' : 'Upgrade Now'}
+                  {isGuest
+                    ? 'Sign In to Upgrade'
+                    : useAppleIAP
+                      ? 'Subscribe with Apple'
+                      : 'Upgrade Now'}
                 </Text>
               )}
             </Pressable>

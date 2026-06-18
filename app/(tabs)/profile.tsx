@@ -56,9 +56,18 @@ export default function ProfileScreen() {
   const [avatarLoading, setAvatarLoading] = useState(false);
 
   const useAppleIAP = isIOSPlatform();
+  const isGuest = !user;
+
+  const handleSignInPrompt = () => {
+    Haptics.selectionAsync();
+    router.push('/login');
+  };
 
   const handleChangePhoto = async () => {
-    if (!user) return;
+    if (!user) {
+      handleSignInPrompt();
+      return;
+    }
     setAvatarLoading(true);
     try {
       const url = await pickAndUploadAvatar(user.id);
@@ -289,10 +298,10 @@ export default function ProfileScreen() {
             </View>
           </Pressable>
           <Text style={styles.profileName}>
-            {user?.username || 'Horror Fan'}
+            {isGuest ? 'Guest' : (user?.username || 'Horror Fan')}
           </Text>
           <Text style={styles.profileEmail}>
-            {user?.email || 'guest@screamfinder.app'}
+            {isGuest ? 'Sign in to sync favorites across devices' : user?.email}
           </Text>
           <View
             style={[
@@ -316,7 +325,34 @@ export default function ProfileScreen() {
           </View>
         </Animated.View>
 
-        {/* Subscription Card */}
+        {/* Guest sign-in CTA */}
+        {isGuest ? (
+          <Animated.View entering={FadeInDown.delay(25).duration(400)}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.guestCard,
+                pressed && { opacity: 0.85 },
+              ]}
+              onPress={handleSignInPrompt}
+            >
+              <View style={styles.guestLeft}>
+                <View style={styles.guestIconCircle}>
+                  <Ionicons name="log-in-outline" size={22} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.guestTitle}>Sign in or create an account</Text>
+                  <Text style={styles.guestSubtitle}>
+                    Sync favorites, unlock Pro, and access from any device.
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        {/* Subscription Card - hidden for guests */}
+        {!isGuest ? (
         <Animated.View
           entering={FadeInDown.delay(50).duration(400)}
           style={styles.subscriptionCard}
@@ -391,6 +427,7 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
         </Animated.View>
+        ) : null}
 
         {/* Restore Purchases - iOS only */}
         {useAppleIAP ? (
@@ -443,6 +480,10 @@ export default function ProfileScreen() {
               ]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (isGuest) {
+                  handleSignInPrompt();
+                  return;
+                }
                 if (useAppleIAP) {
                   handleApplePurchase();
                 } else {
@@ -552,17 +593,23 @@ export default function ProfileScreen() {
           ))}
         </Animated.View>
 
-        {/* Sign Out */}
+        {/* Sign Out / Sign In */}
         <Animated.View entering={FadeInDown.delay(450).duration(400)}>
           <Pressable
             style={({ pressed }) => [
               styles.signOutButton,
               pressed && { opacity: 0.7 },
             ]}
-            onPress={handleSignOut}
+            onPress={isGuest ? handleSignInPrompt : handleSignOut}
           >
-            <Ionicons name="log-out-outline" size={20} color={theme.primary} />
-            <Text style={styles.signOutText}>Sign Out</Text>
+            <Ionicons
+              name={isGuest ? 'log-in-outline' : 'log-out-outline'}
+              size={20}
+              color={theme.primary}
+            />
+            <Text style={styles.signOutText}>
+              {isGuest ? 'Sign In' : 'Sign Out'}
+            </Text>
           </Pressable>
         </Animated.View>
 
@@ -986,6 +1033,42 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginHorizontal: 16,
     marginTop: 8,
+  },
+  guestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 14,
+    backgroundColor: theme.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.primary,
+  },
+  guestLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  guestIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.textPrimary,
+  },
+  guestSubtitle: {
+    fontSize: 12,
+    color: theme.textSecondary,
+    marginTop: 2,
   },
   billedNote: {
     fontSize: 12,

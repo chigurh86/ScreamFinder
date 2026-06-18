@@ -55,6 +55,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const SAVED_MOVIES_KEY = '@screamfinder_saved';
 const SEARCH_HISTORY_KEY = '@screamfinder_history';
 const LAST_REFRESH_KEY = '@screamfinder_last_refresh';
+const GUEST_USAGE_KEY = '@screamfinder_guest_usage';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -130,12 +131,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  // Fetch avatar and daily usage from DB when user is available
+  // Fetch avatar and daily usage from DB when user is available, or read
+  // local guest usage from AsyncStorage when no user is logged in.
   useEffect(() => {
     if (!user) {
-      setSearchCount(0);
-      setUsageLoaded(true);
       setAvatarUrl(null);
+
+      // Guest mode: load today's search count from AsyncStorage
+      (async () => {
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const stored = await AsyncStorage.getItem(GUEST_USAGE_KEY);
+          if (stored) {
+            const parsed = JSON.parse(stored) as { date: string; count: number };
+            setSearchCount(parsed.date === today ? (parsed.count || 0) : 0);
+          } else {
+            setSearchCount(0);
+          }
+        } catch {
+          setSearchCount(0);
+        } finally {
+          setUsageLoaded(true);
+        }
+      })();
       return;
     }
 
@@ -274,9 +292,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const decrementSearches = useCallback(async () => {
-    if (!user) return;
-    const supabase = getSupabaseClient();
     const today = new Date().toISOString().split('T')[0];
+
+    if (!user) {
+      // Guest mode: persist daily count in AsyncStorage
+      const newCount = searchCount + 1;
+      try {
+        await AsyncStorage.setItem(
+          GUEST_USAGE_KEY,
+          JSON.stringify({ date: today, count: newCount })
+        );
+      } catch {
+        /* ignore storage errors */
+      }
+      setSearchCount(newCount);
+      return;
+    }
+
+    const supabase = getSupabaseClient();
 
     const { data: existing } = await supabase
       .from('search_usage')
@@ -299,7 +332,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       setSearchCount(1);
     }
-  }, [user]);
+  }, [user, searchCount]);
 
   return (
     <AppContext.Provider
