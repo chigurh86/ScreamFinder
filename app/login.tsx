@@ -13,6 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { useAuth, useAlert } from '@/template';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
@@ -23,6 +25,12 @@ export default function LoginScreen() {
   const { sendOTP, verifyOTPAndLogin, signInWithPassword, operationLoading } =
     useAuth();
   const { showAlert } = useAlert();
+  const router = useRouter();
+
+  const handleLogoPress = () => {
+    Haptics.selectionAsync();
+    router.replace('/(tabs)');
+  };
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -144,13 +152,22 @@ export default function LoginScreen() {
               style={styles.spookyEyes}
               contentFit="contain"
             />
-            <View style={styles.logoRow}>
+            <Pressable
+              onPress={handleLogoPress}
+              hitSlop={12}
+              accessibilityLabel="Return to home"
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.logoRow,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <Image
                 source={require('../assets/images/knife-logo.png')}
                 style={styles.logo}
                 contentFit="contain"
               />
-            </View>
+            </Pressable>
             <Text style={styles.subtitle}>
               {mode === 'otp' || mode === 'resetPassword'
                 ? 'Enter the verification code'
