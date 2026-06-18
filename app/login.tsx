@@ -540,6 +540,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.border,
     paddingHorizontal: 18,
+    paddingVertical: 10,
     height: 84,
     gap: 12,
   },
