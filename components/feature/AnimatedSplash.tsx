@@ -17,8 +17,23 @@ export function AnimatedSplash({ onFinish }: AnimatedSplashProps) {
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const titleTranslateY = useRef(new Animated.Value(20)).current;
   const containerOpacity = useRef(new Animated.Value(1)).current;
+  // Pre-computed derived animated nodes (avoid creating new Animated.Value
+  // on every render which can break the React Native Web animation graph).
+  const outerGlowOpacity = useRef(
+    Animated.multiply(glowOpacity, new Animated.Value(0.4))
+  ).current;
+  const outerGlowScale = useRef(
+    Animated.multiply(glowScale, new Animated.Value(1.5))
+  ).current;
 
   useEffect(() => {
+    let finished = false;
+    const safeFinish = () => {
+      if (finished) return;
+      finished = true;
+      onFinish();
+    };
+
     // Phase 1: Blood-red glow pulses in
     Animated.sequence([
       Animated.delay(200),
@@ -71,8 +86,13 @@ export function AnimatedSplash({ onFinish }: AnimatedSplashProps) {
         useNativeDriver: true,
       }),
     ]).start(() => {
-      onFinish();
+      safeFinish();
     });
+
+    // Safety net: ensure splash dismisses within 4 seconds even if any
+    // animation step is interrupted (e.g. hot reload, web rendering quirks).
+    const fallbackTimeout = setTimeout(safeFinish, 4000);
+    return () => clearTimeout(fallbackTimeout);
   }, []);
 
   return (
@@ -93,8 +113,8 @@ export function AnimatedSplash({ onFinish }: AnimatedSplashProps) {
         style={[
           styles.glowCircleOuter,
           {
-            opacity: Animated.multiply(glowOpacity, new Animated.Value(0.4)),
-            transform: [{ scale: Animated.multiply(glowScale, new Animated.Value(1.5)) }],
+            opacity: outerGlowOpacity,
+            transform: [{ scale: outerGlowScale }],
           },
         ]}
       />
