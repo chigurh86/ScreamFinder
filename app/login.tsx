@@ -539,13 +539,13 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.border,
-    paddingHorizontal: 14,
-    height: 56,
-    gap: 10,
+    paddingHorizontal: 18,
+    height: 64,
+    gap: 12,
   },
   input: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 20,
     color: theme.textPrimary,
   },
   primaryButton: {
