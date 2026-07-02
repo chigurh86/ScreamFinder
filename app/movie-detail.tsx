@@ -281,7 +281,7 @@ export default function MovieDetailScreen() {
               saved && styles.saveButtonTextSaved,
             ]}
           >
-            {saved ? 'Saved' : 'Save to Favorites'}
+            {saved ? 'Saved' : 'Save Recommendation'}
           </Text>
         </AnimatedPressable>
       </View>
