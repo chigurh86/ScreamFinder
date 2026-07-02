@@ -49,7 +49,10 @@ export default function LoginScreen() {
     const { error } = await signInWithPassword(email.trim(), password);
     if (error) {
       showAlert('Sign In Failed', error);
+      return;
     }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    router.replace('/(tabs)');
   };
 
   const handleForgotSendOTP = async () => {
@@ -87,7 +90,19 @@ export default function LoginScreen() {
     });
     if (error) {
       showAlert('Reset Failed', error);
+      return;
     }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    showAlert(
+      'Password Reset',
+      'Your password has been updated and you are now signed in.',
+      [
+        {
+          text: 'Continue',
+          onPress: () => router.replace('/(tabs)'),
+        },
+      ]
+    );
   };
 
   const handleSendOTP = async () => {
@@ -128,7 +143,10 @@ export default function LoginScreen() {
     });
     if (error) {
       showAlert('Verification Failed', error);
+      return;
     }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    router.replace('/(tabs)');
   };
 
   return (
