@@ -202,6 +202,9 @@ export default function LoginScreen() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    numberOfLines={1}
                     autoFocus
                   />
                 </View>
@@ -367,6 +370,9 @@ export default function LoginScreen() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    numberOfLines={1}
                   />
                 </View>
 
@@ -539,18 +545,27 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.border,
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    height: 84,
-    gap: 12,
+    height: 64,
+    gap: 10,
   },
   input: {
     flex: 1,
-    fontSize: 22,
+    minWidth: 0,
+    fontSize: 17,
     color: theme.textPrimary,
-    // Remove default focus outline on web/native
+    // Remove default focus outline on web/native and enable
+    // horizontal scrolling of long values (e.g. long emails).
     ...(Platform.OS === 'web'
-      ? ({ outlineStyle: 'none', outlineWidth: 0, outlineColor: 'transparent' } as object)
+      ? ({
+          outlineStyle: 'none',
+          outlineWidth: 0,
+          outlineColor: 'transparent',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        } as object)
       : {}),
   },
   primaryButton: {
