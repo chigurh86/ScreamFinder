@@ -273,7 +273,7 @@ export default function MovieDetailScreen() {
           <Ionicons
             name={saved ? 'heart' : 'heart-outline'}
             size={22}
-            color={saved ? '#fff' : theme.primary}
+            color={saved ? theme.primary : '#fff'}
           />
           <Text
             style={[
@@ -527,18 +527,18 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     borderWidth: 2,
     borderColor: theme.primary,
-    backgroundColor: 'transparent',
+    backgroundColor: theme.primary,
   },
   saveButtonSaved: {
-    backgroundColor: theme.primary,
+    backgroundColor: 'transparent',
     borderColor: theme.primary,
   },
   saveButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: theme.primary,
+    color: '#fff',
   },
   saveButtonTextSaved: {
-    color: '#fff',
+    color: theme.primary,
   },
 });
