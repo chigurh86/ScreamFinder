@@ -7,9 +7,16 @@ import { AppProvider } from '../contexts/AppContext';
 import { AnimatedSplash } from '../components/feature/AnimatedSplash';
 import { ErrorBoundary } from '../components/feature/ErrorBoundary';
 import { initErrorReporting } from '../services/errorReportingService';
+import { suppressBenignAuthErrors } from '../services/authRecoveryService';
 import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync();
+
+// Silence known-benign Supabase auth errors (e.g. an expired refresh
+// token surfaced as "Invalid Refresh Token: Refresh Token Not Found").
+// Must run before AuthProvider mounts so the initial session recovery
+// error is intercepted.
+suppressBenignAuthErrors();
 
 // Initialize Sentry as early as possible so it can capture even module-load
 // errors. Safe no-op if EXPO_PUBLIC_SENTRY_DSN is not configured.
