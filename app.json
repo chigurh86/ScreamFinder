@@ -10,7 +10,7 @@
     "newArchEnabled": false,
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.fa.screamfinder",
+      "bundleIdentifier": "com.freakyattractions.screamfinder",
       "buildNumber": "1",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "ScreamFinder needs access to your photo library to set a profile picture.",
@@ -18,7 +18,7 @@
       }
     },
     "android": {
-      "package": "com.fa.screamfinder",
+      "package": "com.freakyattractions.screamfinder",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/app-store-icon.png",
