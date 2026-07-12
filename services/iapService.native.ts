@@ -21,13 +21,55 @@ export interface IAPPurchase {
 
 let iapModule: any = null;
 let isIapInitialized = false;
+let hasCheckedAvailability = false;
+let isAvailable = false;
+
+/**
+ * Determine whether the native IAP module can be loaded in the current
+ * runtime. `react-native-iap` requires custom native code and therefore
+ * cannot be used inside Expo Go — attempting to `require` it there raises
+ * "Requiring unknown module" errors from Metro's module registry.
+ */
+function checkAvailability(): boolean {
+  if (hasCheckedAvailability) return isAvailable;
+  hasCheckedAvailability = true;
+
+  if (Platform.OS !== 'ios') {
+    isAvailable = false;
+    return false;
+  }
+
+  try {
+    // Dynamic require via a computed key so Metro's static analysis
+    // does not try to resolve expo-constants either.
+    const constantsPkg = 'expo-constants';
+    const Constants = require(constantsPkg).default;
+    const env = Constants?.executionEnvironment;
+    const ownership = Constants?.appOwnership;
+    if (env === 'storeClient' || ownership === 'expo') {
+      console.log('[IAP] Skipping — running inside Expo Go');
+      isAvailable = false;
+      return false;
+    }
+  } catch {
+    // expo-constants not available; fall through to the require attempt
+  }
+
+  isAvailable = true;
+  return true;
+}
 
 async function getIAP() {
-  if (Platform.OS !== 'ios') return null;
+  if (!checkAvailability()) return null;
   if (iapModule) return iapModule;
 
   try {
-    iapModule = require('react-native-iap');
+    // Use the `Function` constructor so Metro cannot statically resolve
+    // the `react-native-iap` require at build time. This prevents
+    // runtime "Requiring unknown module" errors in Expo Go where the
+    // native module isn't linked.
+    const dynamicRequire = new Function('m', 'return require(m)');
+    iapModule = dynamicRequire('react-native-iap');
     return iapModule;
   } catch (e) {
     console.log('[IAP] react-native-iap not available:', e);
