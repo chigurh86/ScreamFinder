@@ -1,93 +1,164 @@
-
-import { ErrorUtils } from 'expensify-common';
-import * as Exceptionless from 'exceptionless-js';
-import Config from '../CONFIG';
-import get from './Storage';
-import Network from './Network';
-import CONST from '../CONST';
-import pkg from '../package.json';
-import getOperatingSystem from './getOperatingSystem';
-import getBrowser from './getBrowser';
-
 /**
- * Initialize the Exceptionless JavaScript client with the API key and server URL.
- */
-function init() {
-    Exceptionless.startup((client) => {
-        client.config.apiKey = Config.EXCEPTIONLESS_API_KEY;
-        client.config.serverUrl = Config.EXCEPTIONLESS_SERVER_URL;
-        client.config.defaultData['@version'] = pkg.version;
-        client.config.defaultData.OS = getOperatingSystem();
-        client.config.defaultData.browser = getBrowser();
-        client.config.defaultData.env = Config.ENVIRONMENT;
-        client.config.defaultData.network = {
-            isOnline: Network.isOnline(),
-            currentStatus: Network.getStatus(),
-        };
-        client.config.defaultData.device = {
-            isNative: true,
-        };
-
-        // If we are offline, we want to queue these up to be sent later when we are online.
-        client.config.setIsOnline((isOnline) => isOnline);
-
-        // Add a plugin to parse the default data from the storage when the client is ready
-        client.config.addPlugin((plugin) => {
-            plugin.priority = 100;
-            plugin.name = 'Storage Plugin';
-            plugin.startup(async (context) => {
-                const deviceID = await get(CONST.DEVICE_ID_KEY, '');
-                context.client.config.defaultData.device.id = deviceID;
-            });
-        });
-
-        // Add a plugin to reject logs from the old client, as it causes a lot of noise.
-        client.config.addPlugin((plugin) => {
-            plugin.priority = 99;
-            plugin.name = 'Reject Old Client';
-            plugin.onSubmittingEvent((context) => {
-                const message = context.event.data.message as string | undefined;
-                if (!message) {
-                    return;
-                }
-                const isOldClientError = message.includes('Can\'t find variable: __DEV__')
-                    || message.includes('Can\'t find variable: process')
-                    || message.includes('Setting a timer for a long period of time')
-                    || message.includes('Object.values called on non-object');
-                if (isOldClientError) {
-                    context.cancel = true;
-                }
-            });
-        });
-    });
-}
-
-/**
- * Catch and report an error.
+ * Native (iOS/Android) implementation of the error reporting service.
  *
- * @param {Error} error
- * @param {Boolean} isCaughtInMainApp
- * @param {Object} errorInfo
+ * Uses `@sentry/react-native` when it is installed and a DSN is configured.
+ * The Sentry module is loaded via a parameter-based dynamic `require()`
+ * so that Metro's static analyser never tries to pre-resolve it — this
+ * mirrors the pattern used by `iapService.native.ts` and prevents the
+ * "Requiring unknown module" runtime error when the optional native
+ * dependency isn't linked (e.g. in Expo Go).
+ *
+ * When Sentry is unavailable we degrade gracefully to console logging so
+ * the app continues to run and errors are still visible in dev.
  */
-function catchError(error: Error, isCaughtInMainApp = false, errorInfo: object = {}) {
-    Exceptionless.submitException(error, (event) => {
-        event.data.isCaughtInMainApp = isCaughtInMainApp;
-        event.data = {...event.data, ...errorInfo};
-        ErrorUtils.addErrorInfo(event);
-    });
-}
+
+const SENTRY_DSN =
+  (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_SENTRY_DSN) || '';
+
+let sentry: any = null;
+let sentryInitialized = false;
+let sentryLoadAttempted = false;
 
 /**
- * Log a message.
- *
- * @param {String} message
+ * Runtime module loader. Because `name` is a function parameter, Metro
+ * will not statically pre-assign a module ID to `@sentry/react-native`
+ * during bundling, so an unresolved module can never crash the app at
+ * startup.
  */
-function logInfo(message: string) {
-    Exceptionless.submitLog(message);
+function loadOptionalModule(name: string): any {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(name);
+  } catch {
+    return null;
+  }
 }
 
-export default {
-    init,
-    catchError,
-    logInfo,
-};
+function getSentry(): any {
+  if (sentry) return sentry;
+  if (sentryLoadAttempted) return null;
+  sentryLoadAttempted = true;
+
+  // Assemble the package name at runtime so no literal appears in source.
+  const parts: string[] = [];
+  parts.push('@sentry');
+  parts.push('react-native');
+  const moduleName = parts.join('/');
+  sentry = loadOptionalModule(moduleName);
+  return sentry;
+}
+
+export function initErrorReporting(): void {
+  if (sentryInitialized) return;
+
+  if (!SENTRY_DSN) {
+    if (__DEV__) {
+      console.log(
+        '[ErrorReporting] EXPO_PUBLIC_SENTRY_DSN not configured; using console logging.'
+      );
+    }
+    return;
+  }
+
+  if (__DEV__) {
+    // Skip Sentry in development to avoid noise.
+    console.log('[ErrorReporting] Development build; Sentry disabled.');
+    return;
+  }
+
+  const S = getSentry();
+  if (!S || typeof S.init !== 'function') {
+    console.log(
+      '[ErrorReporting] @sentry/react-native is not installed; falling back to console logging.'
+    );
+    return;
+  }
+
+  try {
+    S.init({
+      dsn: SENTRY_DSN,
+      enableAutoSessionTracking: true,
+      tracesSampleRate: 0.2,
+    });
+    sentryInitialized = true;
+  } catch (e) {
+    console.error('[ErrorReporting] Failed to initialize Sentry:', e);
+  }
+}
+
+export function captureException(
+  error: Error,
+  context?: Record<string, unknown>
+): void {
+  const S = getSentry();
+  if (sentryInitialized && S && typeof S.captureException === 'function') {
+    try {
+      S.captureException(error, context ? { extra: context } : undefined);
+      return;
+    } catch (e) {
+      console.error('[ErrorReporting] Sentry capture failed:', e);
+    }
+  }
+
+  if (context) {
+    console.error('[ErrorReporting]', error, context);
+  } else {
+    console.error('[ErrorReporting]', error);
+  }
+}
+
+export function captureMessage(
+  message: string,
+  level: 'info' | 'warning' | 'error' = 'info'
+): void {
+  const S = getSentry();
+  if (sentryInitialized && S && typeof S.captureMessage === 'function') {
+    try {
+      S.captureMessage(message, level);
+      return;
+    } catch {
+      // Fall through to console
+    }
+  }
+
+  if (__DEV__) {
+    console.log(`[ErrorReporting:${level}] ${message}`);
+  }
+}
+
+export function setUserContext(
+  user: { id: string; email?: string | null } | null
+): void {
+  const S = getSentry();
+  if (!sentryInitialized || !S || typeof S.setUser !== 'function') return;
+
+  try {
+    if (user) {
+      S.setUser({ id: user.id, email: user.email || undefined });
+    } else {
+      S.setUser(null);
+    }
+  } catch {
+    // Silent no-op — user context is best-effort
+  }
+}
+
+export function addBreadcrumb(
+  message: string,
+  category: string = 'app',
+  data?: Record<string, unknown>
+): void {
+  const S = getSentry();
+  if (!sentryInitialized || !S || typeof S.addBreadcrumb !== 'function') return;
+
+  try {
+    S.addBreadcrumb({
+      message,
+      category,
+      data,
+      level: 'info',
+    });
+  } catch {
+    // Silent no-op
+  }
+}
