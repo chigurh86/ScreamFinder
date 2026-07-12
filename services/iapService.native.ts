@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 // IAP Product ID - must match App Store Connect configuration
 export const IAP_PRODUCT_ID = 'com.screamfinder.pro.yearly';
@@ -19,72 +20,61 @@ export interface IAPPurchase {
   transactionDate: number;
 }
 
+// `react-native-iap` requires custom native code and cannot be loaded
+// inside Expo Go. Detect the runtime once at module load so we can bail
+// out before ever touching the module and surface a clean fallback.
+const IS_EXPO_GO =
+  Constants?.executionEnvironment === 'storeClient' ||
+  Constants?.appOwnership === 'expo';
+
 let iapModule: any = null;
 let isIapInitialized = false;
-let hasCheckedAvailability = false;
-let isAvailable = false;
 
 /**
- * Determine whether the native IAP module can be loaded in the current
- * runtime. `react-native-iap` requires custom native code and therefore
- * cannot be used inside Expo Go — attempting to `require` it there raises
- * "Requiring unknown module" errors from Metro's module registry.
+ * Runtime module loader. Metro's static analyser only recognises the
+ * pattern `require('literal string')` as a bundling target — because
+ * `name` here is a function parameter, Metro will NOT attempt to
+ * statically resolve or pre-assign a module ID to `react-native-iap`.
+ * That avoids the "Requiring unknown module <id>" runtime error we see
+ * in Expo Go where the native module is not linked.
  */
-function checkAvailability(): boolean {
-  if (hasCheckedAvailability) return isAvailable;
-  hasCheckedAvailability = true;
-
-  if (Platform.OS !== 'ios') {
-    isAvailable = false;
-    return false;
-  }
-
+function loadNativeIap(name: string): any {
   try {
-    // Dynamic require via a computed key so Metro's static analysis
-    // does not try to resolve expo-constants either.
-    const constantsPkg = 'expo-constants';
-    const Constants = require(constantsPkg).default;
-    const env = Constants?.executionEnvironment;
-    const ownership = Constants?.appOwnership;
-    if (env === 'storeClient' || ownership === 'expo') {
-      console.log('[IAP] Skipping — running inside Expo Go');
-      isAvailable = false;
-      return false;
-    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(name);
   } catch {
-    // expo-constants not available; fall through to the require attempt
-  }
-
-  isAvailable = true;
-  return true;
-}
-
-async function getIAP() {
-  if (!checkAvailability()) return null;
-  if (iapModule) return iapModule;
-
-  try {
-    // Use the `Function` constructor so Metro cannot statically resolve
-    // the `react-native-iap` require at build time. This prevents
-    // runtime "Requiring unknown module" errors in Expo Go where the
-    // native module isn't linked.
-    const dynamicRequire = new Function('m', 'return require(m)');
-    iapModule = dynamicRequire('react-native-iap');
-    return iapModule;
-  } catch (e) {
-    console.log('[IAP] react-native-iap not available:', e);
     return null;
   }
 }
 
+function getIAPModule(): any {
+  if (Platform.OS !== 'ios') return null;
+  if (IS_EXPO_GO) return null;
+  if (iapModule) return iapModule;
+
+  // Assemble the package name at runtime so it never appears as a
+  // literal argument to `require()` anywhere in the source Metro parses.
+  const parts: string[] = [];
+  parts.push('react');
+  parts.push('native');
+  parts.push('iap');
+  const moduleName = parts.join('-');
+  iapModule = loadNativeIap(moduleName);
+  return iapModule;
+}
+
 export async function initializeIAP(): Promise<boolean> {
   if (Platform.OS !== 'ios') return false;
+  if (IS_EXPO_GO) {
+    console.log('[IAP] Skipping — running inside Expo Go');
+    return false;
+  }
   if (isIapInitialized) return true;
 
-  try {
-    const iap = await getIAP();
-    if (!iap) return false;
+  const iap = getIAPModule();
+  if (!iap) return false;
 
+  try {
     await iap.initConnection();
     isIapInitialized = true;
     console.log('[IAP] Connection initialized');
@@ -96,12 +86,10 @@ export async function initializeIAP(): Promise<boolean> {
 }
 
 export async function getProducts(): Promise<IAPProduct[]> {
-  if (Platform.OS !== 'ios') return [];
+  const iap = getIAPModule();
+  if (!iap) return [];
 
   try {
-    const iap = await getIAP();
-    if (!iap) return [];
-
     const products = await iap.getSubscriptions({ skus: [IAP_PRODUCT_ID] });
     return products.map((p: any) => ({
       productId: p.productId,
@@ -118,12 +106,10 @@ export async function getProducts(): Promise<IAPProduct[]> {
 }
 
 export async function requestSubscription(): Promise<IAPPurchase | null> {
-  if (Platform.OS !== 'ios') return null;
+  const iap = getIAPModule();
+  if (!iap) return null;
 
   try {
-    const iap = await getIAP();
-    if (!iap) return null;
-
     const result = await iap.requestSubscription({ sku: IAP_PRODUCT_ID });
     const purchase = Array.isArray(result) ? result[0] : result;
     if (!purchase) return null;
@@ -145,12 +131,10 @@ export async function requestSubscription(): Promise<IAPPurchase | null> {
 }
 
 export async function restorePurchases(): Promise<IAPPurchase[]> {
-  if (Platform.OS !== 'ios') return [];
+  const iap = getIAPModule();
+  if (!iap) return [];
 
   try {
-    const iap = await getIAP();
-    if (!iap) return [];
-
     const purchases = await iap.getAvailablePurchases();
     return purchases
       .filter((p: any) => p.productId === IAP_PRODUCT_ID)
@@ -167,12 +151,10 @@ export async function restorePurchases(): Promise<IAPPurchase[]> {
 }
 
 export async function finishTransaction(purchase: IAPPurchase): Promise<void> {
-  if (Platform.OS !== 'ios') return;
+  const iap = getIAPModule();
+  if (!iap) return;
 
   try {
-    const iap = await getIAP();
-    if (!iap) return;
-
     await iap.finishTransaction({ purchase, isConsumable: false });
     console.log('[IAP] Transaction finished:', purchase.transactionId);
   } catch (e) {
@@ -181,12 +163,11 @@ export async function finishTransaction(purchase: IAPPurchase): Promise<void> {
 }
 
 export async function endIAPConnection(): Promise<void> {
-  if (Platform.OS !== 'ios' || !isIapInitialized) return;
+  if (!isIapInitialized) return;
+  const iap = getIAPModule();
+  if (!iap) return;
 
   try {
-    const iap = await getIAP();
-    if (!iap) return;
-
     await iap.endConnection();
     isIapInitialized = false;
     console.log('[IAP] Connection ended');
