@@ -20,7 +20,8 @@
     "production": {
       "ios": {
         "buildConfiguration": "Release",
-        "autoIncrement": "buildNumber"
+        "autoIncrement": "buildNumber",
+        "image": "latest"
       },
       "android": {
         "buildType": "app-bundle",
