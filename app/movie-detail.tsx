@@ -7,6 +7,7 @@ import {
   Pressable,
   Dimensions,
   Platform,
+  Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -48,6 +49,43 @@ export default function MovieDetailScreen() {
   const heartStyle = useAnimatedStyle(() => ({
     transform: [{ scale: heartScale.value }],
   }));
+
+  /**
+   * Opens the native share sheet with a formatted recommendation. On
+   * iOS this includes Messages (SMS/iMessage), Mail, WhatsApp, and any
+   * other installed share targets; on Android it opens the standard
+   * intent chooser. Falls back gracefully if the user cancels.
+   */
+  const handleShare = useCallback(async () => {
+    if (!movie) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const kind = movie.type === 'movie' ? 'movie' : 'show';
+    const yearPart = movie.year ? ` (${movie.year})` : '';
+    const platforms =
+      movie.streamingOn && movie.streamingOn.length > 0
+        ? `\n\nStreaming on: ${movie.streamingOn.join(', ')}`
+        : '';
+    const desc = movie.description ? `\n\n${movie.description}` : '';
+    const message =
+      `\uD83D\uDD2A You need to watch this horror ${kind}: ${movie.title}${yearPart}` +
+      desc +
+      platforms +
+      `\n\nFound on ScreamFinder \u2014 the horror recommendation app.`;
+    try {
+      await Share.share(
+        {
+          message,
+          title: `${movie.title}${yearPart}`,
+        },
+        {
+          dialogTitle: `Share ${movie.title}`,
+          subject: `Horror recommendation: ${movie.title}${yearPart}`,
+        },
+      );
+    } catch (e) {
+      console.warn('[MovieDetail] Share failed:', e);
+    }
+  }, [movie]);
 
   if (!movie) {
     return (
@@ -129,6 +167,25 @@ export default function MovieDetailScreen() {
           accessibilityRole="button"
         >
           <Ionicons name="close" size={26} color="#fff" />
+        </Pressable>
+
+        {/* Share button - top-right, mirrors the close button */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.shareButton,
+            { top: Math.max(insets.top, Platform.OS === 'web' ? 16 : 8) + 12 },
+            pressed && styles.shareButtonPressed,
+          ]}
+          onPress={handleShare}
+          hitSlop={16}
+          accessibilityLabel={`Share ${movie.title} with a friend`}
+          accessibilityRole="button"
+        >
+          <Ionicons
+            name={Platform.OS === 'ios' ? 'share-outline' : 'share-social-outline'}
+            size={22}
+            color="#fff"
+          />
         </Pressable>
 
         {/* Content */}
@@ -262,28 +319,43 @@ export default function MovieDetailScreen() {
 
       {/* Sticky Bottom CTA */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
-        <AnimatedPressable
-          style={[
-            styles.saveButton,
-            saved && styles.saveButtonSaved,
-            heartStyle,
-          ]}
-          onPress={handleToggleSave}
-        >
-          <Ionicons
-            name={saved ? 'heart' : 'heart-outline'}
-            size={22}
-            color={saved ? theme.primary : '#fff'}
-          />
-          <Text
+        <View style={styles.bottomActionRow}>
+          <AnimatedPressable
             style={[
-              styles.saveButtonText,
-              saved && styles.saveButtonTextSaved,
+              styles.saveButton,
+              saved && styles.saveButtonSaved,
+              heartStyle,
             ]}
+            onPress={handleToggleSave}
           >
-            {saved ? 'Saved' : 'Save Recommendation'}
-          </Text>
-        </AnimatedPressable>
+            <Ionicons
+              name={saved ? 'heart' : 'heart-outline'}
+              size={22}
+              color={saved ? theme.primary : '#fff'}
+            />
+            <Text
+              style={[
+                styles.saveButtonText,
+                saved && styles.saveButtonTextSaved,
+              ]}
+            >
+              {saved ? 'Saved' : 'Save'}
+            </Text>
+          </AnimatedPressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.textFriendButton,
+              pressed && styles.textFriendButtonPressed,
+            ]}
+            onPress={handleShare}
+            accessibilityLabel={`Text ${movie.title} to a friend`}
+            accessibilityRole="button"
+          >
+            <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
+            <Text style={styles.textFriendButtonText}>Text a Friend</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -353,6 +425,29 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   closeButtonPressed: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+    transform: [{ scale: 0.92 }],
+  },
+  shareButton: {
+    position: 'absolute',
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(13, 13, 13, 0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    zIndex: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 10,
+  },
+  shareButtonPressed: {
     backgroundColor: theme.primary,
     borderColor: theme.primary,
     transform: [{ scale: 0.92 }],
@@ -518,7 +613,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: theme.border,
   },
+  bottomActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   saveButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -528,6 +628,27 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: theme.primary,
     backgroundColor: theme.primary,
+  },
+  textFriendButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 56,
+    borderRadius: theme.radius.md,
+    borderWidth: 2,
+    borderColor: theme.accent,
+    backgroundColor: theme.accent,
+  },
+  textFriendButtonPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  textFriendButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
   },
   saveButtonSaved: {
     backgroundColor: 'transparent',
