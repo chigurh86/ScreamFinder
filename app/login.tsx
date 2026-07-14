@@ -42,6 +42,56 @@ async function sendOtpDirect(
 }
 
 /**
+ * Password reset flow — bypasses the template's verifyOTPAndLogin, which
+ * only supports NEW signups (never calls updateUser). For existing users
+ * we must: (1) verifyOtp to establish a session, then (2) updateUser to
+ * actually change the password.
+ */
+async function resetPasswordDirect(
+  email: string,
+  otp: string,
+  newPassword: string
+): Promise<{ error: string | null }> {
+  try {
+    const supabase = getSupabaseClient();
+
+    // Step 1: Verify the OTP code. This establishes a session for the
+    // existing user so we can then update their password.
+    const { data: verifyData, error: verifyError } =
+      await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: 'email',
+      });
+
+    if (verifyError) {
+      return { error: verifyError.message || 'Verification failed' };
+    }
+    if (!verifyData?.session) {
+      return {
+        error:
+          'Could not create a session from that code. It may have expired \u2014 please request a new one.',
+      };
+    }
+
+    // Step 2: With the session live, update the password.
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (updateError) {
+      return {
+        error: updateError.message || 'Could not update password',
+      };
+    }
+
+    return { error: null };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
+
+/**
  * Turns raw Supabase auth errors into user-facing troubleshooting text.
  */
 function humanizeAuthError(msg: string): string {
@@ -151,6 +201,8 @@ export default function LoginScreen() {
     setMode('resetPassword');
   };
 
+  const [isResetting, setIsResetting] = useState(false);
+
   const handleResetPassword = async () => {
     if (!otp.trim()) {
       showAlert('Missing Code', 'Please enter the verification code.');
@@ -164,11 +216,15 @@ export default function LoginScreen() {
       showAlert('Password Mismatch', 'Passwords do not match.');
       return;
     }
-    const { error } = await verifyOTPAndLogin(email.trim(), otp.trim(), {
-      password: newPassword,
-    });
+    setIsResetting(true);
+    const { error } = await resetPasswordDirect(
+      email.trim(),
+      otp.trim(),
+      newPassword
+    );
+    setIsResetting(false);
     if (error) {
-      showAlert('Reset Failed', error);
+      showAlert('Reset Failed', humanizeAuthError(error));
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -403,12 +459,12 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    operationLoading && styles.buttonDisabled,
+                    (operationLoading || isResetting) && styles.buttonDisabled,
                   ]}
                   onPress={handleResetPassword}
-                  disabled={operationLoading}
+                  disabled={operationLoading || isResetting}
                 >
-                  {operationLoading ? (
+                  {operationLoading || isResetting ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={styles.primaryButtonText}>
