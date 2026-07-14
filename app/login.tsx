@@ -45,54 +45,128 @@ async function sendOtpDirect(
  * Sign-in flow — bypasses the template's signInWithPassword wrapper so
  * the actual Supabase error surfaces (e.g. "Invalid login credentials",
  * "Email not confirmed") instead of a generic "Login Failed" message.
+ *
+ * IMPORTANT: We deliberately do NOT sign out first. Doing so would fire a
+ * SIGNED_OUT event that races the subsequent SIGNED_IN event — the
+ * template's onAuthStateChange listener can latch onto SIGNED_OUT and
+ * never process the SIGNED_IN, leaving the app stuck on "Guest" even
+ * though Supabase has a valid session on disk.
  */
 async function signInWithPasswordDirect(
   email: string,
   password: string
-): Promise<{ error: string | null; hasSession: boolean }> {
+): Promise<{
+  error: string | null;
+  hasSession: boolean;
+  accessToken: string | null;
+  refreshToken: string | null;
+}> {
   try {
     const supabase = getSupabaseClient();
-    // Clear any lingering guest / stale session first so we don't collide
-    // with an existing anonymous session.
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      /* ignore — nothing to sign out of */
-    }
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) {
-      return { error: error.message || 'Sign in failed', hasSession: false };
+      return {
+        error: error.message || 'Sign in failed',
+        hasSession: false,
+        accessToken: null,
+        refreshToken: null,
+      };
     }
     if (!data?.session) {
       return {
         error:
           'Signed in but no session was returned. Please try again.',
         hasSession: false,
+        accessToken: null,
+        refreshToken: null,
       };
     }
-    return { error: null, hasSession: true };
+    return {
+      error: null,
+      hasSession: true,
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+    };
   } catch (e) {
     return {
       error: e instanceof Error ? e.message : 'Network error',
       hasSession: false,
+      accessToken: null,
+      refreshToken: null,
     };
   }
+}
+
+/**
+ * Force the template's AuthProvider (which subscribes to Supabase's auth
+ * state on the shared client) to see the newly-created session. Belt +
+ * suspenders approach because the template's listener occasionally misses
+ * the initial SIGNED_IN event fired by signInWithPassword.
+ *
+ * 1) setSession() explicitly re-broadcasts SIGNED_IN with the fresh tokens
+ * 2) refreshSession() asks the AuthProvider to re-read its session cache
+ * 3) Poll supabase.auth.getUser() to confirm the session actually landed
+ */
+async function forceSessionPropagation(
+  accessToken: string,
+  refreshToken: string,
+  refreshSession: () => Promise<void>
+): Promise<boolean> {
+  const supabase = getSupabaseClient();
+
+  // (1) Re-broadcast the SIGNED_IN event so any listener that missed
+  // the original one gets a chance to update.
+  try {
+    await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+  } catch {
+    /* ignore — the session may already be identical */
+  }
+
+  // (2) Ask the AuthProvider to re-read its cached session.
+  try {
+    await refreshSession();
+  } catch {
+    /* ignore — the auth listener will catch up on its own */
+  }
+
+  // (3) Poll for up to ~2s to confirm the session is retrievable.
+  for (let i = 0; i < 10; i++) {
+    try {
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
+      if (currentUser) return true;
+    } catch {
+      /* keep polling */
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
 }
 
 /**
  * Password reset flow — bypasses the template's verifyOTPAndLogin, which
  * only supports NEW signups (never calls updateUser). For existing users
  * we must: (1) verifyOtp to establish a session, then (2) updateUser to
- * actually change the password.
+ * actually change the password. Also returns the session tokens so the
+ * caller can replay them (same fix as sign-in — avoids the "stuck on
+ * Guest" bug caused by missed SIGNED_IN events).
  */
 async function resetPasswordDirect(
   email: string,
   otp: string,
   newPassword: string
-): Promise<{ error: string | null }> {
+): Promise<{
+  error: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+}> {
   try {
     const supabase = getSupabaseClient();
 
@@ -106,12 +180,18 @@ async function resetPasswordDirect(
       });
 
     if (verifyError) {
-      return { error: verifyError.message || 'Verification failed' };
+      return {
+        error: verifyError.message || 'Verification failed',
+        accessToken: null,
+        refreshToken: null,
+      };
     }
     if (!verifyData?.session) {
       return {
         error:
           'Could not create a session from that code. It may have expired \u2014 please request a new one.',
+        accessToken: null,
+        refreshToken: null,
       };
     }
 
@@ -123,12 +203,22 @@ async function resetPasswordDirect(
     if (updateError) {
       return {
         error: updateError.message || 'Could not update password',
+        accessToken: null,
+        refreshToken: null,
       };
     }
 
-    return { error: null };
+    return {
+      error: null,
+      accessToken: verifyData.session.access_token,
+      refreshToken: verifyData.session.refresh_token,
+    };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Network error' };
+    return {
+      error: e instanceof Error ? e.message : 'Network error',
+      accessToken: null,
+      refreshToken: null,
+    };
   }
 }
 
@@ -254,16 +344,14 @@ export default function LoginScreen() {
     // Direct Supabase call — surfaces the real error ("Invalid login
     // credentials", "Email not confirmed", etc.) instead of the template
     // wrapper's generic "Login Failed" that gives users no guidance.
-    const { error, hasSession } = await signInWithPasswordDirect(
-      email.trim(),
-      password
-    );
+    const { error, hasSession, accessToken, refreshToken } =
+      await signInWithPasswordDirect(email.trim(), password);
     if (error) {
       setIsSigningIn(false);
       showAlert('Sign In Failed', humanizeSignInError(error));
       return;
     }
-    if (!hasSession) {
+    if (!hasSession || !accessToken || !refreshToken) {
       setIsSigningIn(false);
       showAlert(
         'Sign In Failed',
@@ -271,15 +359,22 @@ export default function LoginScreen() {
       );
       return;
     }
-    // Force the AuthProvider to re-read the freshly-created session so the
+    // Force the AuthProvider to see the freshly-created session so the
     // "Guest" state in the app flips over to the logged-in user before we
-    // navigate away.
-    try {
-      await refreshSession();
-    } catch {
-      /* non-fatal — the auth listener will catch up on its own */
-    }
+    // navigate away. See forceSessionPropagation() docstring for why this
+    // three-step dance is necessary.
+    const propagated = await forceSessionPropagation(
+      accessToken,
+      refreshToken,
+      refreshSession
+    );
     setIsSigningIn(false);
+    if (!propagated) {
+      showAlert(
+        'Signed In',
+        'You are signed in, but the app is taking a moment to sync. If your account does not appear on the next screen, please close and reopen the app.'
+      );
+    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.replace('/(tabs)');
   };
@@ -332,16 +427,22 @@ export default function LoginScreen() {
       return;
     }
     setIsResetting(true);
-    const { error } = await resetPasswordDirect(
+    const { error, accessToken, refreshToken } = await resetPasswordDirect(
       email.trim(),
       otp.trim(),
       newPassword
     );
-    setIsResetting(false);
     if (error) {
+      setIsResetting(false);
       showAlert('Reset Failed', humanizeAuthError(error));
       return;
     }
+    // Force AuthProvider to see the new session so the app doesn't
+    // land on the tabs still showing "Guest".
+    if (accessToken && refreshToken) {
+      await forceSessionPropagation(accessToken, refreshToken, refreshSession);
+    }
+    setIsResetting(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     showAlert(
       'Password Reset',
