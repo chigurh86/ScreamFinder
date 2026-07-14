@@ -24,6 +24,8 @@ import { useApp } from '../contexts/AppContext';
  * Bypasses the template's generic sendOTP wrapper and calls Supabase
  * directly so the real error message (rate limit, unknown user, etc.)
  * surfaces to the UI instead of "Failed to send verification code".
+ *
+ * Used for password reset (existing accounts only).
  */
 async function sendOtpDirect(
   email: string,
@@ -39,6 +41,116 @@ async function sendOtpDirect(
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
+
+/**
+ * Proper account creation flow. Calls Supabase's signUp() which:
+ *   (a) creates the user WITH the password set atomically, and
+ *   (b) sends the email verification OTP.
+ *
+ * This replaces the previous flawed "signInWithOtp then updateUser"
+ * pattern where the password often failed to persist for brand-new
+ * accounts — users would appear to sign up successfully but then be
+ * unable to log back in with "Invalid credentials" errors.
+ *
+ * If the email is already registered but unconfirmed, Supabase will
+ * automatically resend the confirmation OTP. If it's registered and
+ * already confirmed, we surface a friendly "sign in instead" message.
+ */
+async function signUpWithOtpDirect(
+  email: string,
+  password: string
+): Promise<{ error: string | null; alreadyRegistered: boolean }> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    if (error) {
+      const lower = (error.message || '').toLowerCase();
+      // Detect "already registered / confirmed" errors so the caller can
+      // route the user to the sign-in tab instead of a scary error.
+      const alreadyRegistered =
+        lower.includes('already registered') ||
+        lower.includes('user already') ||
+        lower.includes('already exists');
+      return {
+        error: error.message || 'Sign up failed',
+        alreadyRegistered,
+      };
+    }
+    // Detect the "user already exists but unconfirmed" edge case: when
+    // this happens, Supabase returns success but with identities=[] on
+    // the user object. In that case Supabase has resent the confirmation
+    // OTP; the caller should proceed to the OTP screen either way.
+    const identities = data?.user?.identities;
+    if (identities && identities.length === 0) {
+      // Silent success — confirmation OTP was resent for an existing
+      // unconfirmed account. Proceed to OTP screen as normal.
+    }
+    return { error: null, alreadyRegistered: false };
+  } catch (e) {
+    return {
+      error: e instanceof Error ? e.message : 'Network error',
+      alreadyRegistered: false,
+    };
+  }
+}
+
+/**
+ * Verifies the signup OTP and completes account creation. Because the
+ * password was already set by signUp() at account-creation time, we do
+ * NOT need to call updateUser here — verifyOtp alone confirms the email
+ * address and establishes a valid session.
+ *
+ * Uses type: 'signup' (not 'email') because this is a signup
+ * confirmation, not a magic-link login. The wrong type can cause
+ * verification to succeed without actually marking the account as
+ * confirmed, leaving the user in a broken state.
+ */
+async function verifySignupOtpDirect(
+  email: string,
+  otp: string
+): Promise<{
+  error: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+}> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: 'signup',
+    });
+    if (error) {
+      return {
+        error: error.message || 'Verification failed',
+        accessToken: null,
+        refreshToken: null,
+      };
+    }
+    if (!data?.session) {
+      return {
+        error:
+          'Could not create a session from that code. It may have expired \u2014 please request a new one.',
+        accessToken: null,
+        refreshToken: null,
+      };
+    }
+    return {
+      error: null,
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+    };
+  } catch (e) {
+    return {
+      error: e instanceof Error ? e.message : 'Network error',
+      accessToken: null,
+      refreshToken: null,
+    };
   }
 }
 
@@ -535,11 +647,24 @@ export default function LoginScreen() {
       );
       return;
     }
-    // Direct Supabase call with shouldCreateUser=true for new signups.
-    const { error } = await sendOtpDirect(email.trim(), true);
+    // Use signUp() so the password is persisted AT account-creation
+    // time. Previously we used signInWithOtp() + updateUser() which
+    // frequently dropped the password for brand-new accounts, leaving
+    // users unable to log back in with "Invalid credentials".
+    const { error, alreadyRegistered } = await signUpWithOtpDirect(
+      email.trim(),
+      password
+    );
     if (error) {
       setCooldownSecs(60);
-      showAlert('Sign Up Failed', humanizeAuthError(error));
+      if (alreadyRegistered) {
+        showAlert(
+          'Email Already Registered',
+          'An account with this email already exists. Please tap "Already have an account? Sign In" below to sign in, or use "Forgot Password?" if you need to reset your password.'
+        );
+      } else {
+        showAlert('Sign Up Failed', humanizeAuthError(error));
+      }
       return;
     }
     setCooldownSecs(60);
@@ -556,28 +681,65 @@ export default function LoginScreen() {
       return;
     }
     setIsVerifying(true);
-    // Bypass the template's verifyOTPAndLogin (which uses an unreliable
-    // code path that intermittently drops the password on new accounts and
-    // fails to fire a clean SIGNED_IN event). Same two-step direct call the
-    // password-reset flow uses: verifyOtp establishes the session, then
-    // updateUser applies the password.
-    const { error, accessToken, refreshToken } = await resetPasswordDirect(
+    console.log('[SignUp] Verifying signup OTP for', email.trim());
+    // Step 1: Verify the signup OTP. This confirms the email address and
+    // creates a session. The password was already set atomically by
+    // signUp() when we sent the OTP, so no updateUser is needed here.
+    const { error, accessToken, refreshToken } = await verifySignupOtpDirect(
       email.trim(),
-      otp.trim(),
-      password
+      otp.trim()
     );
     if (error) {
       setIsVerifying(false);
+      console.warn('[SignUp] OTP verification failed:', error);
       showAlert('Verification Failed', humanizeVerifyError(error));
       return;
     }
-    // Force the AuthProvider to see the new session so the app flips out
-    // of Guest mode into the freshly-created account before we navigate.
+    console.log('[SignUp] OTP verified successfully, session established');
+
+    // Step 2: Force the template's AuthProvider to see the new session so
+    // the app flips out of Guest mode before we navigate.
     if (accessToken && refreshToken) {
       await forceSessionPropagation(accessToken, refreshToken, refreshSession);
     }
-    // Pull avatar + username now that the session is live (harmless for a
-    // brand-new account — will just return an empty profile row).
+
+    // Step 3: Explicitly sign in with the password we set at signUp
+    // time. This is a belt-and-suspenders step — it guarantees a fresh
+    // SIGNED_IN event fires that the template's onAuthStateChange listener
+    // will reliably pick up, so the profile screen shows the real account
+    // instead of "Guest". Also confirms the password was actually saved.
+    console.log('[SignUp] Confirming sign-in with new password');
+    const signInResult = await signInWithPasswordDirect(
+      email.trim(),
+      password
+    );
+    if (signInResult.error) {
+      // If this fails, the account was created but the password didn't
+      // persist properly. Surface a helpful message so the user knows to
+      // use "Forgot Password?" to set a working password.
+      setIsVerifying(false);
+      console.error(
+        '[SignUp] Post-verification sign-in failed:',
+        signInResult.error
+      );
+      showAlert(
+        'Account Created',
+        'Your account was created but we could not sign you in automatically. Please go back to the sign-in screen and log in with the password you just set. If it doesn\u2019t work, tap "Forgot Password?" to reset it.'
+      );
+      setMode('login');
+      return;
+    }
+    if (signInResult.accessToken && signInResult.refreshToken) {
+      await forceSessionPropagation(
+        signInResult.accessToken,
+        signInResult.refreshToken,
+        refreshSession
+      );
+    }
+    console.log('[SignUp] Sign-in confirmed, refreshing profile');
+
+    // Step 4: Pull avatar + username (empty for brand-new accounts —
+    // harmless, will just return no rows).
     try {
       await refreshProfile();
     } catch {
