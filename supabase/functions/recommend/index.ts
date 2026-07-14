@@ -34,12 +34,34 @@ async function fetchTMDBSuggestions(
   let inputDecade: string | null = null;
 
   try {
-    // Step 1: Search TMDB for the input title to get its ID
+    // Step 1: Search TMDB for the input title to get its ID.
+    // search/multi returns movies, TV shows, and people; we filter out people
+    // and pick the highest-popularity match with a strong exact-title bonus.
+    // This prevents obscure same-name titles from beating famous ones like
+    // Jaws (1975) or The Shining (1980).
     const searchUrl = `${TMDB_BASE}/search/multi?api_key=${apiKey}&query=${encodeURIComponent(title)}&include_adult=false`;
     const searchResp = await fetch(searchUrl);
     if (!searchResp.ok) return { suggestions: [], inputYear: null, inputDecade: null };
     const searchData = await searchResp.json();
-    const match = searchData.results?.[0];
+
+    const normalizedQuery = title.toLowerCase().trim();
+    const mediaMatches = ((searchData.results || []) as Array<TMDBMovie & { media_type?: string; poster_path?: string | null }>).filter(
+      (r) => (r.media_type === 'movie' || r.media_type === 'tv') && r.poster_path
+    );
+
+    if (mediaMatches.length === 0) {
+      return { suggestions: [], inputYear: null, inputDecade: null };
+    }
+
+    const scoredMatches = mediaMatches.map((r) => {
+      const name = ((r.title || r.name || '') as string).toLowerCase().trim();
+      let score = r.popularity || 0;
+      if (name === normalizedQuery) score += 1000; // exact title match
+      else if (name.includes(normalizedQuery) || normalizedQuery.includes(name)) score += 200;
+      return { result: r, score };
+    });
+    scoredMatches.sort((a, b) => b.score - a.score);
+    const match = scoredMatches[0].result;
     if (!match) return { suggestions: [], inputYear: null, inputDecade: null };
 
     // Extract the release year of the searched title

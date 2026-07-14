@@ -32,6 +32,8 @@ function normalizeTitle(t: string): string {
 
 /**
  * Picks the best TMDB search result by matching year and title similarity.
+ * When queryYear is 0 (unknown), popularity is weighted much higher so
+ * famous titles win over obscure same-name results.
  */
 function pickBestMatch(
   results: TMDBSearchResult[],
@@ -42,6 +44,10 @@ function pickBestMatch(
   if (!results || results.length === 0) return null;
 
   const normQuery = normalizeTitle(queryTitle);
+  // Treat far-future or missing years as "unknown" — the frontend may pass
+  // a current-year fallback when the user did not specify one.
+  const currentYear = new Date().getFullYear();
+  const hasKnownYear = queryYear > 0 && queryYear <= currentYear + 1;
 
   // Score each result
   const scored = results
@@ -63,8 +69,8 @@ function pickBestMatch(
         score += 10; // weak match
       }
 
-      // Year match scoring
-      if (queryYear && resultYear) {
+      // Year match scoring — only when we have a real user-supplied year
+      if (hasKnownYear && resultYear) {
         const yearDiff = Math.abs(resultYear - queryYear);
         if (yearDiff === 0) score += 50;
         else if (yearDiff === 1) score += 40;
@@ -72,8 +78,15 @@ function pickBestMatch(
         else score -= yearDiff * 2;
       }
 
-      // Popularity tiebreaker (prefer more popular for same score)
-      score += Math.min((r.popularity || 0) / 100, 5);
+      // Popularity scoring — heavy weight when year is unknown so famous
+      // titles like Jaws (1975, popularity ~40) beat an obscure 2020 doc
+      // with the same name (popularity ~1).
+      const pop = r.popularity || 0;
+      if (hasKnownYear) {
+        score += Math.min(pop / 100, 5); // light tiebreaker
+      } else {
+        score += Math.min(pop / 2, 80); // dominant factor
+      }
 
       return { result: r, score };
     });

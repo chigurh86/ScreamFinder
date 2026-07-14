@@ -164,8 +164,11 @@ export default function HomeScreen() {
       addSearchHistory(title);
       await decrementSearches();
 
-      // Fetch poster and streaming providers for the searched title itself
-      fetchPostersAndProviders([{ title, year: specifiedYear || new Date().getFullYear(), type: 'movie' }]).then((result) => {
+      // Fetch poster and streaming providers for the searched title itself.
+      // Pass year: 0 when unknown so pickBestMatch falls back to popularity —
+      // otherwise TMDB would score famous old titles against the current year
+      // and pick an obscure recent movie with the same name.
+      fetchPostersAndProviders([{ title, year: specifiedYear || 0, type: 'movie' }]).then((result) => {
         if (result.posters[title]) setSearchedPoster(result.posters[title]);
         if (result.providers[title]) setSearchedProviders(result.providers[title]);
       });
@@ -178,7 +181,18 @@ export default function HomeScreen() {
       if (error) {
         setErrorMessage(error);
       } else if (data) {
-        if (inputYear) setSearchedYear(inputYear);
+        if (inputYear) {
+          setSearchedYear(inputYear);
+          // If we didn't have a year at search time but the backend identified
+          // one via TMDB, re-fetch the poster with the correct year so the
+          // "You searched for" card shows the right title.
+          if (!specifiedYear) {
+            fetchPostersAndProviders([{ title, year: inputYear, type: 'movie' }]).then((result) => {
+              if (result.posters[title]) setSearchedPoster(result.posters[title]);
+              if (result.providers[title]) setSearchedProviders(result.providers[title]);
+            });
+          }
+        }
         // Client-side safety net: filter out anything still matching a saved title
         const filtered = data.filter((m) => !savedTitlesLower.has(m.title.toLowerCase()));
         setResults(filtered);
