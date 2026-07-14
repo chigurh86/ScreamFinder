@@ -14,6 +14,9 @@
       "buildNumber": "1",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "ScreamFinder needs access to your photo library to set a profile picture.",
+        "NSCameraUsageDescription": "ScreamFinder does not use the camera. This description is required because a bundled SDK references the camera API.",
+        "NSContactsUsageDescription": "ScreamFinder does not access your contacts. This description is required because a bundled SDK references the contacts API.",
+        "NSCalendarsUsageDescription": "ScreamFinder does not access your calendar. This description is required because a bundled SDK references the calendar API.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
