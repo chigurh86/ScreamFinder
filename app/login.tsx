@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,9 +15,62 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useAuth, useAlert } from '@/template';
+import { useAuth, useAlert, getSupabaseClient } from '@/template';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
+
+/**
+ * Bypasses the template's generic sendOTP wrapper and calls Supabase
+ * directly so the real error message (rate limit, unknown user, etc.)
+ * surfaces to the UI instead of "Failed to send verification code".
+ */
+async function sendOtpDirect(
+  email: string,
+  shouldCreateUser: boolean
+): Promise<{ error: string | null }> {
+  try {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser },
+    });
+    if (error) return { error: error.message || 'Failed to send code' };
+    return { error: null };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
+
+/**
+ * Turns raw Supabase auth errors into user-facing troubleshooting text.
+ */
+function humanizeAuthError(msg: string): string {
+  const lower = (msg || '').toLowerCase();
+  if (
+    lower.includes('rate') ||
+    lower.includes('security purposes') ||
+    lower.includes('too many') ||
+    lower.includes('over_email_send_rate_limit') ||
+    lower.match(/\b(after|in|wait)\s*\d+\s*second/i)
+  ) {
+    return 'Too many code requests recently. Please wait 60 seconds and try again. Also check your spam folder for a previous code.';
+  }
+  if (
+    lower.includes('signups not allowed') ||
+    lower.includes('signup is disabled') ||
+    lower.includes('user not found') ||
+    (lower.includes('user') && lower.includes('does not exist'))
+  ) {
+    return 'No account found with this email. Double-check the address, or tap "Back to Sign In" and create an account first.';
+  }
+  if (lower.includes('invalid') && lower.includes('email')) {
+    return 'That email address looks invalid. Please check for typos.';
+  }
+  if (lower.includes('smtp') || lower.includes('email service')) {
+    return 'Our email service is temporarily unavailable. Please try again in a few minutes or email support@screamfinder.app.';
+  }
+  return `${msg}\n\nTroubleshooting:\n\u2022 Check your spam / junk folder\n\u2022 Verify the email address is spelled correctly\n\u2022 Wait 60 seconds before trying again`;
+}
 
 type AuthMode = 'login' | 'register' | 'otp' | 'forgot' | 'resetPassword';
 
@@ -40,6 +93,17 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [cooldownSecs, setCooldownSecs] = useState(0);
+
+  // Countdown timer for the resend cooldown. Prevents rapid retries
+  // that would otherwise trip Supabase's per-email OTP rate limit.
+  useEffect(() => {
+    if (cooldownSecs <= 0) return;
+    const t = setInterval(() => {
+      setCooldownSecs((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [cooldownSecs]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -60,12 +124,27 @@ export default function LoginScreen() {
       showAlert('Missing Email', 'Please enter your email address.');
       return;
     }
-    const { error } = await sendOTP(email.trim());
-    if (error) {
-      showAlert('Error', error);
+    if (cooldownSecs > 0) {
+      showAlert(
+        'Please Wait',
+        `You can request a new code in ${cooldownSecs} seconds. Check your spam folder while you wait.`
+      );
       return;
     }
-    showAlert('Code Sent', 'A verification code has been sent to your email.');
+    // Direct Supabase call — surfaces real errors instead of the generic
+    // "Failed to send verification code" the template wrapper returns.
+    // shouldCreateUser=false ensures we only send OTPs to existing accounts.
+    const { error } = await sendOtpDirect(email.trim(), false);
+    if (error) {
+      setCooldownSecs(60);
+      showAlert('Reset Code Failed', humanizeAuthError(error));
+      return;
+    }
+    setCooldownSecs(60);
+    showAlert(
+      'Code Sent',
+      `A verification code has been sent to ${email.trim()}. It may take up to a minute to arrive \u2014 check your spam folder if you don't see it.`
+    );
     setOtp('');
     setNewPassword('');
     setConfirmNewPassword('');
@@ -121,14 +200,24 @@ export default function LoginScreen() {
       showAlert('Password Mismatch', 'Passwords do not match.');
       return;
     }
-    const { error } = await sendOTP(email.trim());
-    if (error) {
-      showAlert('Error', error);
+    if (cooldownSecs > 0) {
+      showAlert(
+        'Please Wait',
+        `You can request a new code in ${cooldownSecs} seconds. Check your spam folder while you wait.`
+      );
       return;
     }
+    // Direct Supabase call with shouldCreateUser=true for new signups.
+    const { error } = await sendOtpDirect(email.trim(), true);
+    if (error) {
+      setCooldownSecs(60);
+      showAlert('Sign Up Failed', humanizeAuthError(error));
+      return;
+    }
+    setCooldownSecs(60);
     showAlert(
       'Code Sent',
-      'A verification code has been sent to your email.'
+      `A verification code has been sent to ${email.trim()}. Check your spam folder if you don't see it within a minute.`
     );
     setMode('otp');
   };
@@ -230,13 +319,18 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    operationLoading && styles.buttonDisabled,
+                    (operationLoading || cooldownSecs > 0) &&
+                      styles.buttonDisabled,
                   ]}
                   onPress={handleForgotSendOTP}
-                  disabled={operationLoading}
+                  disabled={operationLoading || cooldownSecs > 0}
                 >
                   {operationLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
+                  ) : cooldownSecs > 0 ? (
+                    <Text style={styles.primaryButtonText}>
+                      Retry in {cooldownSecs}s
+                    </Text>
                   ) : (
                     <Text style={styles.primaryButtonText}>
                       Send Reset Code
@@ -442,13 +536,22 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    operationLoading && styles.buttonDisabled,
+                    (operationLoading ||
+                      (mode === 'register' && cooldownSecs > 0)) &&
+                      styles.buttonDisabled,
                   ]}
                   onPress={mode === 'login' ? handleLogin : handleSendOTP}
-                  disabled={operationLoading}
+                  disabled={
+                    operationLoading ||
+                    (mode === 'register' && cooldownSecs > 0)
+                  }
                 >
                   {operationLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
+                  ) : mode === 'register' && cooldownSecs > 0 ? (
+                    <Text style={styles.primaryButtonText}>
+                      Retry in {cooldownSecs}s
+                    </Text>
                   ) : (
                     <Text style={styles.primaryButtonText}>
                       {mode === 'login' ? 'Sign In' : 'Create Account'}
