@@ -47,6 +47,7 @@ export default function ProfileScreen() {
     iapPricing,
     avatarUrl,
     setAvatarUrl,
+    profileName,
   } = useApp();
 
   const [portalLoading, setPortalLoading] = useState(false);
@@ -298,7 +299,9 @@ export default function ProfileScreen() {
             </View>
           </Pressable>
           <Text style={styles.profileName}>
-            {isGuest ? 'Guest' : (user?.username || 'Horror Fan')}
+            {isGuest
+              ? 'Guest'
+              : (user?.username || profileName || user?.email?.split('@')[0] || 'Horror Fan')}
           </Text>
           <Text style={styles.profileEmail}>
             {isGuest ? 'Sign in to sync favorites across devices' : user?.email}

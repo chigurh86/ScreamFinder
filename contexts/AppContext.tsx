@@ -48,6 +48,8 @@ interface AppContextType {
   iapPricing: IAPPricing | null;
   avatarUrl: string | null;
   setAvatarUrl: (url: string | null) => void;
+  profileName: string | null;
+  refreshProfile: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -70,6 +72,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [iapInitialized, setIapInitialized] = useState(false);
   const [iapPricing, setIapPricing] = useState<IAPPricing | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState<string | null>(null);
+  const profileFetchAbortRef = useRef<{ userId: string | null; cancelled: boolean }>({
+    userId: null,
+    cancelled: false,
+  });
 
   const remaining = isSubscribed ? Infinity : Math.max(0, FREE_DAILY_LIMIT - searchCount);
   const isAtLimit = !isSubscribed && searchCount >= FREE_DAILY_LIMIT;
@@ -131,11 +138,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
+  // Fetch avatar + username with retry logic. When the AuthProvider fires
+  // its user-change event, Supabase's shared client may not yet have the
+  // JWT fully attached to PostgREST requests, so the RLS-protected select
+  // returns silently empty. We retry up to 4 times with backoff to cover
+  // that propagation window, and log the actual error so it doesn't fail
+  // invisibly.
+  const fetchProfileWithRetry = useCallback(
+    async (userId: string, maxAttempts = 4): Promise<void> => {
+      profileFetchAbortRef.current = { userId, cancelled: false };
+      const abortToken = profileFetchAbortRef.current;
+      const supabase = getSupabaseClient();
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (abortToken.cancelled || abortToken.userId !== userId) return;
+        try {
+          const { data, error } = await supabase
+            .from('user_profiles')
+            .select('avatar_url, username')
+            .eq('id', userId)
+            .maybeSingle();
+
+          if (abortToken.cancelled || abortToken.userId !== userId) return;
+
+          if (error) {
+            console.warn(
+              `[AppContext] Profile fetch attempt ${attempt + 1}/${maxAttempts} failed:`,
+              error.message,
+            );
+          } else if (data) {
+            if (data.avatar_url) setAvatarUrl(data.avatar_url);
+            if (data.username) setProfileName(data.username);
+            // Success — stop retrying if we got any profile data at all.
+            if (data.avatar_url || data.username) return;
+          }
+        } catch (e) {
+          console.warn(
+            `[AppContext] Profile fetch attempt ${attempt + 1}/${maxAttempts} threw:`,
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+
+        // Wait before retrying — gives the auth session time to propagate.
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        }
+      }
+    },
+    [],
+  );
+
+  // Manual refresh hook — called from login flow immediately after a
+  // successful sign-in so we don't have to wait for the user-effect to
+  // fire (which is subject to React batching delays).
+  const refreshProfile = useCallback(async () => {
+    if (!user?.id) return;
+    await fetchProfileWithRetry(user.id);
+  }, [user, fetchProfileWithRetry]);
+
   // Fetch avatar and daily usage from DB when user is available, or read
   // local guest usage from AsyncStorage when no user is logged in.
   useEffect(() => {
     if (!user) {
+      // Cancel any in-flight profile fetch for a previous user.
+      profileFetchAbortRef.current.cancelled = true;
       setAvatarUrl(null);
+      setProfileName(null);
 
       // Guest mode: load today's search count from AsyncStorage
       (async () => {
@@ -157,17 +225,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Fetch avatar URL
-    const fetchAvatar = async () => {
-      const supabase = getSupabaseClient();
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('avatar_url')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (data?.avatar_url) setAvatarUrl(data.avatar_url);
-    };
-    fetchAvatar();
+    // New user just signed in — clear any stale profile data from a
+    // previous account before we fetch this one's data.
+    if (profileFetchAbortRef.current.userId !== user.id) {
+      profileFetchAbortRef.current.cancelled = true;
+      setAvatarUrl(null);
+      setProfileName(null);
+    }
+
+    // Kick off retry-backed profile fetch.
+    fetchProfileWithRetry(user.id);
 
     const fetchUsage = async () => {
       const supabase = getSupabaseClient();
@@ -182,7 +249,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUsageLoaded(true);
     };
     fetchUsage();
-  }, [user]);
+  }, [user, fetchProfileWithRetry]);
 
   // Check subscription status
   const checkSubscription = useCallback(async () => {
@@ -362,6 +429,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         iapPricing,
         avatarUrl,
         setAvatarUrl,
+        profileName,
+        refreshProfile,
       }}
     >
       {children}

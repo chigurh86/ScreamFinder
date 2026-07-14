@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useAuth, useAlert, getSupabaseClient } from '@/template';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
+import { useApp } from '../contexts/AppContext';
 
 /**
  * Bypasses the template's generic sendOTP wrapper and calls Supabase
@@ -306,6 +307,7 @@ export default function LoginScreen() {
     operationLoading,
   } = useAuth();
   const { showAlert } = useAlert();
+  const { refreshProfile } = useApp();
   const router = useRouter();
 
   const handleLogoPress = () => {
@@ -368,6 +370,15 @@ export default function LoginScreen() {
       refreshToken,
       refreshSession
     );
+    // Explicitly refresh the profile (avatar + username) now that the
+    // session is guaranteed live. This side-steps any race between the
+    // AuthProvider's user-effect firing and Supabase's PostgREST client
+    // attaching the JWT to the RLS-protected user_profiles query.
+    try {
+      await refreshProfile();
+    } catch {
+      /* non-fatal — the AppContext user-effect will retry */
+    }
     setIsSigningIn(false);
     if (!propagated) {
       showAlert(
@@ -441,6 +452,12 @@ export default function LoginScreen() {
     // land on the tabs still showing "Guest".
     if (accessToken && refreshToken) {
       await forceSessionPropagation(accessToken, refreshToken, refreshSession);
+    }
+    // Pull down avatar + username now that the session is live.
+    try {
+      await refreshProfile();
+    } catch {
+      /* non-fatal — AppContext will retry */
     }
     setIsResetting(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
