@@ -91,36 +91,83 @@ export default function MovieDetailScreen() {
       `\n\nFound on ScreamFinder \u2014 the horror recommendation app.`;
 
     // ---- Web branch: React Native's Share API does not work on web ----
+    // navigator.share() only works when:
+    //   - the page is served over HTTPS,
+    //   - the call is inside a user gesture, AND
+    //   - the page is either top-level OR its parent iframe has
+    //     allow="web-share" set.
+    // The OnSpace live preview runs in an iframe WITHOUT that permission,
+    // so navigator.share() throws "Permission denied". If sharing fails
+    // for ANY reason (permission denied, user cancelled, unsupported),
+    // we silently fall back to copy-to-clipboard so the button always
+    // does something useful.
     if (Platform.OS === 'web') {
       const nav =
         typeof window !== 'undefined' ? (window as any).navigator : null;
-      try {
-        if (nav?.share) {
+
+      // First attempt: native web share sheet (works on mobile browsers
+      // and standalone browser tabs, fails inside restricted iframes).
+      if (nav?.share) {
+        try {
           await nav.share({
             title: `${movie.title}${yearPart}`,
             text: message,
           });
-          return;
+          return; // success
+        } catch (e) {
+          const err = e as Error & { name?: string };
+          // User dismissed the share sheet on purpose — do nothing.
+          if (err?.name === 'AbortError') return;
+          // Any other failure (NotAllowedError, permission denied inside
+          // iframe, unsupported target, etc.) falls through to clipboard.
+          console.log(
+            '[MovieDetail] navigator.share unavailable, falling back to clipboard:',
+            err?.message || err,
+          );
         }
+      }
+
+      // Fallback: copy the recommendation to the clipboard.
+      try {
         if (nav?.clipboard?.writeText) {
           await nav.clipboard.writeText(message);
           showAlert(
             'Copied to Clipboard',
-            'Paste the recommendation into any messaging app to share it with a friend.',
+            'Sharing is blocked in this preview window, so we copied the recommendation instead. Paste it into any messaging app to send it to a friend.\n\nOn a real device, this button opens Messages, Mail, WhatsApp, and other apps directly.',
           );
           return;
         }
-        showAlert(
-          'Sharing Unavailable',
-          'Your browser does not support sharing. Please try again on the mobile app.',
-        );
       } catch (e) {
-        console.warn('[MovieDetail] Web share failed:', e);
-        showAlert(
-          'Share Failed',
-          e instanceof Error ? e.message : 'Could not share right now. Please try again.',
-        );
+        console.warn('[MovieDetail] Clipboard write failed:', e);
       }
+
+      // Last-resort fallback: legacy execCommand copy.
+      try {
+        if (typeof document !== 'undefined') {
+          const ta = document.createElement('textarea');
+          ta.value = message;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand && document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (ok) {
+            showAlert(
+              'Copied to Clipboard',
+              'Paste the recommendation into any messaging app to share it with a friend.',
+            );
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('[MovieDetail] execCommand copy failed:', e);
+      }
+
+      showAlert(
+        'Sharing Unavailable',
+        'Your browser blocked sharing. Please try again on the mobile app, where the native share sheet is available.',
+      );
       return;
     }
 
