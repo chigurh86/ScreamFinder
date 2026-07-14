@@ -255,6 +255,44 @@ function humanizeAuthError(msg: string): string {
 }
 
 /**
+ * Humanizes OTP verification errors so the user knows exactly what to do
+ * (request a fresh code, remove extra spaces, use the newest code, etc.).
+ */
+function humanizeVerifyError(msg: string): string {
+  const lower = (msg || '').toLowerCase();
+  if (
+    lower.includes('expired') ||
+    lower.includes('token has expired') ||
+    lower.includes('otp_expired')
+  ) {
+    return 'That verification code has expired. Codes are only valid for about an hour. Tap "Go back" and request a new one.';
+  }
+  if (
+    lower.includes('invalid') ||
+    lower.includes('token not found') ||
+    lower.includes('token_not_found') ||
+    lower.includes('otp_disabled')
+  ) {
+    return 'That code is incorrect.\n\nTroubleshooting:\n\u2022 Use the code from the MOST RECENT email (older codes stop working the moment a new one is sent)\n\u2022 Check for extra spaces if you pasted it\n\u2022 Codes are ' + '4 digits — make sure you did not include extra characters\n\u2022 If still failing, tap "Go back" and request a fresh code';
+  }
+  if (
+    lower.includes('rate') ||
+    lower.includes('too many') ||
+    lower.includes('security purposes')
+  ) {
+    return 'Too many verification attempts. Please wait a minute and try again.';
+  }
+  if (
+    lower.includes('network') ||
+    lower.includes('fetch') ||
+    lower.includes('failed to fetch')
+  ) {
+    return 'Network error \u2014 please check your internet connection and try again.';
+  }
+  return `${msg}\n\nTry tapping "Go back" and requesting a fresh code, then use the newest one you receive.`;
+}
+
+/**
  * Humanizes sign-in specific errors from Supabase.
  */
 function humanizeSignInError(msg: string): string {
@@ -423,6 +461,7 @@ export default function LoginScreen() {
   };
 
   const [isResetting, setIsResetting] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const handleResetPassword = async () => {
     if (!otp.trim()) {
@@ -516,13 +555,35 @@ export default function LoginScreen() {
       showAlert('Missing Code', 'Please enter the verification code.');
       return;
     }
-    const { error } = await verifyOTPAndLogin(email.trim(), otp.trim(), {
-      password,
-    });
+    setIsVerifying(true);
+    // Bypass the template's verifyOTPAndLogin (which uses an unreliable
+    // code path that intermittently drops the password on new accounts and
+    // fails to fire a clean SIGNED_IN event). Same two-step direct call the
+    // password-reset flow uses: verifyOtp establishes the session, then
+    // updateUser applies the password.
+    const { error, accessToken, refreshToken } = await resetPasswordDirect(
+      email.trim(),
+      otp.trim(),
+      password
+    );
     if (error) {
-      showAlert('Verification Failed', error);
+      setIsVerifying(false);
+      showAlert('Verification Failed', humanizeVerifyError(error));
       return;
     }
+    // Force the AuthProvider to see the new session so the app flips out
+    // of Guest mode into the freshly-created account before we navigate.
+    if (accessToken && refreshToken) {
+      await forceSessionPropagation(accessToken, refreshToken, refreshSession);
+    }
+    // Pull avatar + username now that the session is live (harmless for a
+    // brand-new account — will just return an empty profile row).
+    try {
+      await refreshProfile();
+    } catch {
+      /* non-fatal */
+    }
+    setIsVerifying(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.replace('/(tabs)');
   };
@@ -734,12 +795,12 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    operationLoading && styles.buttonDisabled,
+                    (operationLoading || isVerifying) && styles.buttonDisabled,
                   ]}
                   onPress={handleVerifyOTP}
-                  disabled={operationLoading}
+                  disabled={operationLoading || isVerifying}
                 >
-                  {operationLoading ? (
+                  {operationLoading || isVerifying ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={styles.primaryButtonText}>
