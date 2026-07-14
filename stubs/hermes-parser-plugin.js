@@ -38,7 +38,14 @@ module.exports = function hermesParserFlowShim() {
     // normally be handled by hermes-parser. Idempotent — safe to call
     // repeatedly across files.
     manipulateOptions(_opts, parserOpts) {
-      if (!parserOpts || !Array.isArray(parserOpts.plugins)) return;
+      if (!parserOpts) return;
+      // Ensure the plugins array exists — earlier revision returned
+      // early when plugins was undefined, silently skipping Flow
+      // enablement and letting RN's Flow-typed internal source files
+      // fail to parse.
+      if (!Array.isArray(parserOpts.plugins)) {
+        parserOpts.plugins = [];
+      }
       const hasFlow = parserOpts.plugins.some(
         (p) =>
           p === 'flow' ||
