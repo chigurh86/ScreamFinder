@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -8,6 +9,7 @@ import { AnimatedSplash } from '../components/feature/AnimatedSplash';
 import { ErrorBoundary } from '../components/feature/ErrorBoundary';
 import { initErrorReporting } from '../services/errorReportingService';
 import { suppressBenignAuthErrors } from '../services/authRecoveryService';
+import { theme } from '../constants/theme';
 import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync();
@@ -25,8 +27,11 @@ initErrorReporting();
 export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
 
-  useEffect(() => {
-    SplashScreen.hideAsync();
+  const handleSplashLayout = useCallback(() => {
+    // Only dismiss the native splash once our JS splash has actually
+    // painted its first frame. Prevents the white flash caused by
+    // hiding the native splash before AnimatedSplash renders.
+    SplashScreen.hideAsync().catch(() => {});
   }, []);
 
   const handleSplashFinish = useCallback(() => {
@@ -40,33 +45,51 @@ export default function RootLayout() {
           <AuthProvider>
             <AppProvider>
               <StatusBar style="light" />
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="login" />
-                <Stack.Screen
-                  name="movie-detail"
-                  options={{
-                    presentation: 'modal',
-                    animation: 'slide_from_bottom',
-                  }}
-                />
-                <Stack.Screen
-                  name="privacy"
-                  options={{
+              {/* Root dark background prevents any transparent frame
+                  from showing RN's default white view. */}
+              <View style={styles.root}>
+                <Stack
+                  screenOptions={{
                     headerShown: false,
-                    animation: 'slide_from_right',
+                    contentStyle: { backgroundColor: theme.background },
+                    animation: 'fade',
                   }}
-                />
-                <Stack.Screen
-                  name="terms"
-                  options={{
-                    headerShown: false,
-                    animation: 'slide_from_right',
-                  }}
-                />
-              </Stack>
-              {showSplash ? <AnimatedSplash onFinish={handleSplashFinish} /> : null}
+                >
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="login" />
+                  <Stack.Screen
+                    name="movie-detail"
+                    options={{
+                      presentation: 'modal',
+                      animation: 'slide_from_bottom',
+                      contentStyle: { backgroundColor: theme.background },
+                    }}
+                  />
+                  <Stack.Screen
+                    name="privacy"
+                    options={{
+                      headerShown: false,
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: theme.background },
+                    }}
+                  />
+                  <Stack.Screen
+                    name="terms"
+                    options={{
+                      headerShown: false,
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: theme.background },
+                    }}
+                  />
+                </Stack>
+                {showSplash ? (
+                  <AnimatedSplash
+                    onLayout={handleSplashLayout}
+                    onFinish={handleSplashFinish}
+                  />
+                ) : null}
+              </View>
             </AppProvider>
           </AuthProvider>
         </SafeAreaProvider>
@@ -74,3 +97,10 @@ export default function RootLayout() {
     </ErrorBoundary>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: theme.background,
+  },
+});

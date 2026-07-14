@@ -39,7 +39,11 @@
           "image": "./assets/images/spooky-eyes.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0D0D0D"
+          "backgroundColor": "#0A0A0F",
+          "dark": {
+            "image": "./assets/images/spooky-eyes.png",
+            "backgroundColor": "#0A0A0F"
+          }
         }
       ],
       "expo-web-browser"

@@ -7,9 +7,10 @@ const { width, height } = Dimensions.get('window');
 
 interface AnimatedSplashProps {
   onFinish: () => void;
+  onLayout?: () => void;
 }
 
-export function AnimatedSplash({ onFinish }: AnimatedSplashProps) {
+export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
   const eyesOpacity = useRef(new Animated.Value(0)).current;
   const eyesScale = useRef(new Animated.Value(0.7)).current;
   const glowOpacity = useRef(new Animated.Value(0)).current;
@@ -96,7 +97,10 @@ export function AnimatedSplash({ onFinish }: AnimatedSplashProps) {
   }, []);
 
   return (
-    <Animated.View style={[styles.container, { opacity: containerOpacity }]}>
+    <Animated.View
+      onLayout={onLayout}
+      style={[styles.container, { opacity: containerOpacity }]}
+    >
       {/* Blood-red glow behind eyes */}
       <Animated.View
         style={[
