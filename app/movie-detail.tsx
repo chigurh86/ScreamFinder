@@ -14,6 +14,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { useAlert } from '@/template';
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -33,6 +34,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export default function MovieDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { showAlert } = useAlert();
   const { movieJson } = useLocalSearchParams<{ movieJson: string }>();
   const { isSaved, toggleSave } = useApp();
   const heartScale = useSharedValue(1);
@@ -51,14 +53,30 @@ export default function MovieDetailScreen() {
   }));
 
   /**
-   * Opens the native share sheet with a formatted recommendation. On
-   * iOS this includes Messages (SMS/iMessage), Mail, WhatsApp, and any
-   * other installed share targets; on Android it opens the standard
-   * intent chooser. Falls back gracefully if the user cancels.
+   * Opens the native share sheet with a formatted recommendation.
+   *
+   * - iOS/Android: uses React Native's Share.share() which surfaces
+   *   Messages (SMS/iMessage), Mail, WhatsApp, and any other installed
+   *   share targets.
+   * - Web (OnSpace live preview, Expo Web): React Native's Share.share()
+   *   silently no-ops on web, so we fall through to navigator.share()
+   *   (mobile browsers) or copy-to-clipboard (desktop browsers) and
+   *   surface a confirmation dialog so the button always DOES something.
+   *
+   * If any path fails (permission denied, sheet blocked, etc.) we show an
+   * alert instead of failing silently, and log to the console so we can
+   * diagnose issues in the future.
    */
   const handleShare = useCallback(async () => {
     if (!movie) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    console.log('[MovieDetail] Send-to-friend pressed for', movie.title, 'platform:', Platform.OS);
+
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      /* haptics not critical */
+    }
+
     const kind = movie.type === 'movie' ? 'movie' : 'show';
     const yearPart = movie.year ? ` (${movie.year})` : '';
     const platforms =
@@ -71,8 +89,44 @@ export default function MovieDetailScreen() {
       desc +
       platforms +
       `\n\nFound on ScreamFinder \u2014 the horror recommendation app.`;
+
+    // ---- Web branch: React Native's Share API does not work on web ----
+    if (Platform.OS === 'web') {
+      const nav =
+        typeof window !== 'undefined' ? (window as any).navigator : null;
+      try {
+        if (nav?.share) {
+          await nav.share({
+            title: `${movie.title}${yearPart}`,
+            text: message,
+          });
+          return;
+        }
+        if (nav?.clipboard?.writeText) {
+          await nav.clipboard.writeText(message);
+          showAlert(
+            'Copied to Clipboard',
+            'Paste the recommendation into any messaging app to share it with a friend.',
+          );
+          return;
+        }
+        showAlert(
+          'Sharing Unavailable',
+          'Your browser does not support sharing. Please try again on the mobile app.',
+        );
+      } catch (e) {
+        console.warn('[MovieDetail] Web share failed:', e);
+        showAlert(
+          'Share Failed',
+          e instanceof Error ? e.message : 'Could not share right now. Please try again.',
+        );
+      }
+      return;
+    }
+
+    // ---- Native branch: iOS / Android ----
     try {
-      await Share.share(
+      const result = await Share.share(
         {
           message,
           title: `${movie.title}${yearPart}`,
@@ -82,10 +136,20 @@ export default function MovieDetailScreen() {
           subject: `Horror recommendation: ${movie.title}${yearPart}`,
         },
       );
+      console.log(
+        '[MovieDetail] Share sheet result:',
+        result?.action || 'unknown',
+      );
     } catch (e) {
-      console.warn('[MovieDetail] Share failed:', e);
+      console.error('[MovieDetail] Native share failed:', e);
+      showAlert(
+        'Share Failed',
+        e instanceof Error
+          ? e.message
+          : 'Could not open the share sheet. Please try again.',
+      );
     }
-  }, [movie]);
+  }, [movie, showAlert]);
 
   if (!movie) {
     return (
@@ -349,11 +413,11 @@ export default function MovieDetailScreen() {
               pressed && styles.textFriendButtonPressed,
             ]}
             onPress={handleShare}
-            accessibilityLabel={`Text ${movie.title} to a friend`}
+            accessibilityLabel={`Send ${movie.title} to a friend`}
             accessibilityRole="button"
           >
-            <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
-            <Text style={styles.textFriendButtonText}>Text a Friend</Text>
+            <Ionicons name="paper-plane" size={20} color="#fff" />
+            <Text style={styles.textFriendButtonText}>Send To Friend</Text>
           </Pressable>
         </View>
       </View>
