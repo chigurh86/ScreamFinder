@@ -1,9 +1,22 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from '@/template';
 import { getSupabaseClient } from '@/template';
 import type { Movie } from '../services/recommendationService';
+
+/**
+ * Minimal user shape (mirrors the template's AuthUser). We manage this
+ * locally — subscribing directly to Supabase's onAuthStateChange on the
+ * shared client — because the template's AuthProvider frequently misses
+ * SIGNED_IN events fired by direct supabase.auth.* calls, which leaves
+ * the app stuck showing "Guest" even with a perfectly valid session.
+ * Managing our own state on the same shared client eliminates the race.
+ */
+export interface AuthUser {
+  id: string;
+  email: string;
+  username?: string;
+}
 import {
   initializeIAP,
   endIAPConnection,
@@ -50,6 +63,9 @@ interface AppContextType {
   setAvatarUrl: (url: string | null) => void;
   profileName: string | null;
   refreshProfile: () => Promise<void>;
+  currentUser: AuthUser | null;
+  signOut: () => Promise<{ error: string | null }>;
+  refreshAuthState: () => Promise<AuthUser | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -60,7 +76,11 @@ const LAST_REFRESH_KEY = '@screamfinder_last_refresh';
 const GUEST_USAGE_KEY = '@screamfinder_guest_usage';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  // We manage auth state ourselves rather than relying on the template's
+  // useAuth() — the template's AuthProvider misses SIGNED_IN events fired
+  // by direct supabase.auth.* calls, leaving the app stuck on "Guest".
+  // Our own subscription on the SAME shared Supabase client is rock-solid.
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [savedMovies, setSavedMovies] = useState<Movie[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [lastFavoritesRefresh, setLastFavoritesRefresh] = useState<number | null>(null);
@@ -82,6 +102,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isAtLimit = !isSubscribed && searchCount >= FREE_DAILY_LIMIT;
   const canSaveMore = isSubscribed || savedMovies.length < FREE_FAVORITES_LIMIT;
   const favoritesRemaining = isSubscribed ? Infinity : Math.max(0, FREE_FAVORITES_LIMIT - savedMovies.length);
+
+  // Subscribe directly to Supabase auth events — our single source of
+  // truth for currentUser. Works reliably because it fires on the SAME
+  // shared Supabase client that all our sign-in / sign-out calls target,
+  // so there's no cross-client race and no missed events.
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    let mounted = true;
+
+    const toAuthUser = (u: any): AuthUser => ({
+      id: u.id,
+      email: u.email || '',
+      username: u.user_metadata?.username || u.user_metadata?.full_name,
+    });
+
+    // Restore any existing session on cold start (page reload, app relaunch).
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        if (data?.session?.user) {
+          setCurrentUser(toAuthUser(data.session.user));
+        }
+      })
+      .catch(() => {
+        /* no cached session — ignore */
+      });
+
+    // Listen for future sign-in / sign-out events.
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!mounted) return;
+        console.log(
+          '[AppContext] Supabase auth event:',
+          event,
+          'user:',
+          session?.user?.email || 'none',
+        );
+        if (session?.user) {
+          setCurrentUser(toAuthUser(session.user));
+        } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+          setCurrentUser(null);
+          setAvatarUrl(null);
+          setProfileName(null);
+        }
+      },
+    );
+
+    return () => {
+      mounted = false;
+      try {
+        sub?.subscription?.unsubscribe();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
 
   // Initialize IAP on iOS and fetch product pricing
   useEffect(() => {
@@ -192,14 +269,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // successful sign-in so we don't have to wait for the user-effect to
   // fire (which is subject to React batching delays).
   const refreshProfile = useCallback(async () => {
-    if (!user?.id) return;
-    await fetchProfileWithRetry(user.id);
-  }, [user, fetchProfileWithRetry]);
+    if (!currentUser?.id) return;
+    await fetchProfileWithRetry(currentUser.id);
+  }, [currentUser, fetchProfileWithRetry]);
 
-  // Fetch avatar and daily usage from DB when user is available, or read
-  // local guest usage from AsyncStorage when no user is logged in.
+  // Fetch avatar and daily usage from DB when currentUser is available,
+  // or read local guest usage from AsyncStorage when signed out.
   useEffect(() => {
-    if (!user) {
+    if (!currentUser) {
       // Cancel any in-flight profile fetch for a previous user.
       profileFetchAbortRef.current.cancelled = true;
       setAvatarUrl(null);
@@ -227,14 +304,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // New user just signed in — clear any stale profile data from a
     // previous account before we fetch this one's data.
-    if (profileFetchAbortRef.current.userId !== user.id) {
+    if (profileFetchAbortRef.current.userId !== currentUser.id) {
       profileFetchAbortRef.current.cancelled = true;
       setAvatarUrl(null);
       setProfileName(null);
     }
 
     // Kick off retry-backed profile fetch.
-    fetchProfileWithRetry(user.id);
+    fetchProfileWithRetry(currentUser.id);
 
     const fetchUsage = async () => {
       const supabase = getSupabaseClient();
@@ -242,18 +319,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase
         .from('search_usage')
         .select('search_count')
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .eq('search_date', today)
         .maybeSingle();
       setSearchCount(data?.search_count ?? 0);
       setUsageLoaded(true);
     };
     fetchUsage();
-  }, [user, fetchProfileWithRetry]);
+  }, [currentUser, fetchProfileWithRetry]);
 
   // Check subscription status
   const checkSubscription = useCallback(async () => {
-    if (!user) return;
+    if (!currentUser) return;
     try {
       const supabase = getSupabaseClient();
       const { data, error } = await supabase.functions.invoke('check-subscription');
@@ -265,27 +342,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // silently fail
     }
-  }, [user]);
+  }, [currentUser]);
 
   // Check subscription on user change + periodic refresh
   useEffect(() => {
-    if (user) {
+    if (currentUser) {
       checkSubscription();
     } else {
       setIsSubscribed(false);
       setSubscriptionEnd(null);
       setSubscriptionSource(null);
     }
-  }, [user, checkSubscription]);
+  }, [currentUser, checkSubscription]);
 
   // Periodic subscription refresh (every 60 seconds)
   useEffect(() => {
-    if (!user) return;
+    if (!currentUser) return;
     const interval = setInterval(() => {
       checkSubscription();
     }, 60000);
     return () => clearInterval(interval);
-  }, [user, checkSubscription]);
+  }, [currentUser, checkSubscription]);
 
   // Deep link handler for checkout success/cancel
   useEffect(() => {
@@ -361,7 +438,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const decrementSearches = useCallback(async () => {
     const today = new Date().toISOString().split('T')[0];
 
-    if (!user) {
+    if (!currentUser) {
       // Guest mode: persist daily count in AsyncStorage
       const newCount = searchCount + 1;
       try {
@@ -381,7 +458,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { data: existing } = await supabase
       .from('search_usage')
       .select('id, search_count')
-      .eq('user_id', user.id)
+      .eq('user_id', currentUser.id)
       .eq('search_date', today)
       .maybeSingle();
 
@@ -393,13 +470,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSearchCount(existing.search_count + 1);
     } else {
       await supabase.from('search_usage').insert({
-        user_id: user.id,
+        user_id: currentUser.id,
         search_date: today,
         search_count: 1,
       });
       setSearchCount(1);
     }
-  }, [user, searchCount]);
+  }, [currentUser, searchCount]);
+
+  // Re-reads the Supabase session and updates currentUser. Called from
+  // the login flow after a successful sign-in as a belt-and-suspenders
+  // check in case the onAuthStateChange event listener missed firing.
+  // Retries briefly to cover the session-propagation window.
+  const refreshAuthState = useCallback(async (): Promise<AuthUser | null> => {
+    const supabase = getSupabaseClient();
+    for (let i = 0; i < 5; i++) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user) {
+          const u = data.session.user;
+          const authUser: AuthUser = {
+            id: u.id,
+            email: u.email || '',
+            username: u.user_metadata?.username || u.user_metadata?.full_name,
+          };
+          setCurrentUser(authUser);
+          return authUser;
+        }
+      } catch {
+        /* keep polling */
+      }
+      if (i < 4) {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
+    setCurrentUser(null);
+    return null;
+  }, []);
+
+  // Directly signs out via Supabase and immediately clears local state.
+  // Bypasses the template's logout wrapper which sometimes throws even
+  // when the sign-out succeeds server-side.
+  const signOut = useCallback(async (): Promise<{ error: string | null }> => {
+    const supabase = getSupabaseClient();
+    try {
+      const { error } = await supabase.auth.signOut();
+      // Clear our state immediately for a snappy UI transition. The
+      // auth event listener will fire SIGNED_OUT and reconfirm shortly.
+      setCurrentUser(null);
+      setAvatarUrl(null);
+      setProfileName(null);
+      setIsSubscribed(false);
+      setSubscriptionEnd(null);
+      setSubscriptionSource(null);
+      if (error) return { error: error.message };
+      return { error: null };
+    } catch (e) {
+      setCurrentUser(null);
+      return {
+        error: e instanceof Error ? e.message : 'Sign out failed',
+      };
+    }
+  }, []);
 
   return (
     <AppContext.Provider
@@ -431,6 +563,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setAvatarUrl,
         profileName,
         refreshProfile,
+        currentUser,
+        signOut,
+        refreshAuthState,
       }}
     >
       {children}

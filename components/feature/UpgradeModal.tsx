@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import { useAlert, useAuth } from '@/template';
+import { useAlert } from '@/template';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import * as Haptics from 'expo-haptics';
@@ -37,12 +37,13 @@ export default function UpgradeModal({ visible, onClose, dailyLimit }: UpgradeMo
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const { showAlert } = useAlert();
-  const { checkSubscription, iapInitialized, iapPricing } = useApp();
-  const { user } = useAuth();
+  // Use AppContext's currentUser instead of useAuth() — the template's
+  // user state is unreliable after direct Supabase auth calls.
+  const { checkSubscription, iapInitialized, iapPricing, currentUser } = useApp();
   const router = useRouter();
 
   const useAppleIAP = isIOSPlatform();
-  const isGuest = !user;
+  const isGuest = !currentUser;
 
   // Apple IAP purchase flow
   const handleApplePurchase = async () => {

@@ -18,7 +18,7 @@ import { Linking } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { pickAndUploadAvatar } from '../../services/avatarService';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useAuth, useAlert } from '@/template';
+import { useAlert } from '@/template';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { theme } from '../../constants/theme';
@@ -33,8 +33,10 @@ import {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout } = useAuth();
   const { showAlert } = useAlert();
+  // currentUser + signOut come from AppContext instead of the template's
+  // useAuth() — the template's user state is unreliable after direct
+  // Supabase auth calls (frequently stays null even with a valid session).
   const {
     savedMovies,
     remainingSearches,
@@ -48,6 +50,8 @@ export default function ProfileScreen() {
     avatarUrl,
     setAvatarUrl,
     profileName,
+    currentUser,
+    signOut,
   } = useApp();
 
   const [portalLoading, setPortalLoading] = useState(false);
@@ -57,7 +61,7 @@ export default function ProfileScreen() {
   const [avatarLoading, setAvatarLoading] = useState(false);
 
   const useAppleIAP = isIOSPlatform();
-  const isGuest = !user;
+  const isGuest = !currentUser;
 
   const handleSignInPrompt = () => {
     Haptics.selectionAsync();
@@ -65,13 +69,13 @@ export default function ProfileScreen() {
   };
 
   const handleChangePhoto = async () => {
-    if (!user) {
+    if (!currentUser) {
       handleSignInPrompt();
       return;
     }
     setAvatarLoading(true);
     try {
-      const url = await pickAndUploadAvatar(user.id);
+      const url = await pickAndUploadAvatar(currentUser.id);
       if (url) {
         setAvatarUrl(url);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -249,7 +253,7 @@ export default function ProfileScreen() {
 
   const handleSignOut = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const { error } = await logout();
+    const { error } = await signOut();
     if (error) {
       showAlert('Error', error);
     }
@@ -301,10 +305,10 @@ export default function ProfileScreen() {
           <Text style={styles.profileName}>
             {isGuest
               ? 'Guest'
-              : (user?.username || profileName || user?.email?.split('@')[0] || 'Horror Fan')}
+              : (currentUser?.username || profileName || currentUser?.email?.split('@')[0] || 'Horror Fan')}
           </Text>
           <Text style={styles.profileEmail}>
-            {isGuest ? 'Sign in to sync favorites across devices' : user?.email}
+            {isGuest ? 'Sign in to sync favorites across devices' : currentUser?.email}
           </Text>
           <View
             style={[
@@ -371,7 +375,7 @@ export default function ProfileScreen() {
                 <Text style={styles.subTitle}>
                   {isSubscribed ? 'Pro Plan' : 'Free Plan'}
                 </Text>
-                <Text style={styles.subEmail}>{user?.email}</Text>
+                <Text style={styles.subEmail}>{currentUser?.email}</Text>
               </View>
             </View>
             {isSubscribed ? (

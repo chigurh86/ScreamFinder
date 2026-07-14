@@ -15,7 +15,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useAuth, useAlert, getSupabaseClient } from '@/template';
+import { useAlert, getSupabaseClient } from '@/template';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { theme } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
@@ -214,56 +214,6 @@ async function signInWithPasswordDirect(
 }
 
 /**
- * Force the template's AuthProvider (which subscribes to Supabase's auth
- * state on the shared client) to see the newly-created session. Belt +
- * suspenders approach because the template's listener occasionally misses
- * the initial SIGNED_IN event fired by signInWithPassword.
- *
- * 1) setSession() explicitly re-broadcasts SIGNED_IN with the fresh tokens
- * 2) refreshSession() asks the AuthProvider to re-read its session cache
- * 3) Poll supabase.auth.getUser() to confirm the session actually landed
- */
-async function forceSessionPropagation(
-  accessToken: string,
-  refreshToken: string,
-  refreshSession: () => Promise<void>
-): Promise<boolean> {
-  const supabase = getSupabaseClient();
-
-  // (1) Re-broadcast the SIGNED_IN event so any listener that missed
-  // the original one gets a chance to update.
-  try {
-    await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    });
-  } catch {
-    /* ignore — the session may already be identical */
-  }
-
-  // (2) Ask the AuthProvider to re-read its cached session.
-  try {
-    await refreshSession();
-  } catch {
-    /* ignore — the auth listener will catch up on its own */
-  }
-
-  // (3) Poll for up to ~2s to confirm the session is retrievable.
-  for (let i = 0; i < 10; i++) {
-    try {
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser();
-      if (currentUser) return true;
-    } catch {
-      /* keep polling */
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  return false;
-}
-
-/**
  * Password reset flow — bypasses the template's verifyOTPAndLogin, which
  * only supports NEW signups (never calls updateUser). For existing users
  * we must: (1) verifyOtp to establish a session, then (2) updateUser to
@@ -449,15 +399,12 @@ function humanizeSignInError(msg: string): string {
 type AuthMode = 'login' | 'register' | 'otp' | 'forgot' | 'resetPassword';
 
 export default function LoginScreen() {
-  const {
-    sendOTP,
-    verifyOTPAndLogin,
-    signInWithPassword,
-    refreshSession,
-    operationLoading,
-  } = useAuth();
+  // We no longer use the template's useAuth() — all auth flows go through
+  // direct Supabase calls, and AppContext manages the actual user state
+  // via its own onAuthStateChange subscription. See AppContext.tsx for
+  // why the template's AuthProvider is unreliable.
   const { showAlert } = useAlert();
-  const { refreshProfile } = useApp();
+  const { refreshProfile, refreshAuthState } = useApp();
   const router = useRouter();
 
   const handleLogoPress = () => {
@@ -496,14 +443,16 @@ export default function LoginScreen() {
     // Direct Supabase call — surfaces the real error ("Invalid login
     // credentials", "Email not confirmed", etc.) instead of the template
     // wrapper's generic "Login Failed" that gives users no guidance.
-    const { error, hasSession, accessToken, refreshToken } =
-      await signInWithPasswordDirect(email.trim(), password);
+    const { error, hasSession } = await signInWithPasswordDirect(
+      email.trim(),
+      password
+    );
     if (error) {
       setIsSigningIn(false);
       showAlert('Sign In Failed', humanizeSignInError(error));
       return;
     }
-    if (!hasSession || !accessToken || !refreshToken) {
+    if (!hasSession) {
       setIsSigningIn(false);
       showAlert(
         'Sign In Failed',
@@ -511,31 +460,27 @@ export default function LoginScreen() {
       );
       return;
     }
-    // Force the AuthProvider to see the freshly-created session so the
-    // "Guest" state in the app flips over to the logged-in user before we
-    // navigate away. See forceSessionPropagation() docstring for why this
-    // three-step dance is necessary.
-    const propagated = await forceSessionPropagation(
-      accessToken,
-      refreshToken,
-      refreshSession
-    );
-    // Explicitly refresh the profile (avatar + username) now that the
-    // session is guaranteed live. This side-steps any race between the
-    // AuthProvider's user-effect firing and Supabase's PostgREST client
-    // attaching the JWT to the RLS-protected user_profiles query.
+    // Ask AppContext to re-read the Supabase session so currentUser
+    // updates BEFORE we navigate. AppContext manages user state via its
+    // own onAuthStateChange subscription on the same shared Supabase
+    // client, so this reliably reflects the freshly-created session
+    // — no more "stuck on Guest" bug from the flaky template AuthProvider.
+    const authUser = await refreshAuthState();
+    if (!authUser) {
+      setIsSigningIn(false);
+      showAlert(
+        'Sign In Failed',
+        'Signed in but the session did not persist locally. Please close and reopen the app, then try again.'
+      );
+      return;
+    }
+    // Pull avatar + username now that we know the session is live.
     try {
       await refreshProfile();
     } catch {
-      /* non-fatal — the AppContext user-effect will retry */
+      /* non-fatal — AppContext will retry via its user-effect */
     }
     setIsSigningIn(false);
-    if (!propagated) {
-      showAlert(
-        'Signed In',
-        'You are signed in, but the app is taking a moment to sync. If your account does not appear on the next screen, please close and reopen the app.'
-      );
-    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.replace('/(tabs)');
   };
@@ -589,7 +534,7 @@ export default function LoginScreen() {
       return;
     }
     setIsResetting(true);
-    const { error, accessToken, refreshToken } = await resetPasswordDirect(
+    const { error } = await resetPasswordDirect(
       email.trim(),
       otp.trim(),
       newPassword
@@ -599,12 +544,11 @@ export default function LoginScreen() {
       showAlert('Reset Failed', humanizeAuthError(error));
       return;
     }
-    // Force AuthProvider to see the new session so the app doesn't
-    // land on the tabs still showing "Guest".
-    if (accessToken && refreshToken) {
-      await forceSessionPropagation(accessToken, refreshToken, refreshSession);
-    }
-    // Pull down avatar + username now that the session is live.
+    // Ask AppContext to re-read the session so currentUser updates
+    // before we navigate. AppContext's onAuthStateChange subscription
+    // usually already picked up the event fired by verifyOtp, but this
+    // explicit refresh guarantees the state is fresh.
+    await refreshAuthState();
     try {
       await refreshProfile();
     } catch {
@@ -685,38 +629,27 @@ export default function LoginScreen() {
     // Step 1: Verify the signup OTP. This confirms the email address and
     // creates a session. The password was already set atomically by
     // signUp() when we sent the OTP, so no updateUser is needed here.
-    const { error, accessToken, refreshToken } = await verifySignupOtpDirect(
-      email.trim(),
-      otp.trim()
-    );
+    const { error } = await verifySignupOtpDirect(email.trim(), otp.trim());
     if (error) {
       setIsVerifying(false);
       console.warn('[SignUp] OTP verification failed:', error);
       showAlert('Verification Failed', humanizeVerifyError(error));
       return;
     }
-    console.log('[SignUp] OTP verified successfully, session established');
+    console.log('[SignUp] OTP verified — session established');
 
-    // Step 2: Force the template's AuthProvider to see the new session so
-    // the app flips out of Guest mode before we navigate.
-    if (accessToken && refreshToken) {
-      await forceSessionPropagation(accessToken, refreshToken, refreshSession);
-    }
-
-    // Step 3: Explicitly sign in with the password we set at signUp
-    // time. This is a belt-and-suspenders step — it guarantees a fresh
-    // SIGNED_IN event fires that the template's onAuthStateChange listener
-    // will reliably pick up, so the profile screen shows the real account
-    // instead of "Guest". Also confirms the password was actually saved.
+    // Step 2: Explicitly sign in with the password we set at signUp
+    // time. This is a belt-and-suspenders step — it confirms the
+    // password actually persisted, and fires a fresh SIGNED_IN event
+    // that AppContext's onAuthStateChange subscription picks up. If
+    // this fails we know the password wasn't saved and can guide the
+    // user to reset it.
     console.log('[SignUp] Confirming sign-in with new password');
     const signInResult = await signInWithPasswordDirect(
       email.trim(),
       password
     );
     if (signInResult.error) {
-      // If this fails, the account was created but the password didn't
-      // persist properly. Surface a helpful message so the user knows to
-      // use "Forgot Password?" to set a working password.
       setIsVerifying(false);
       console.error(
         '[SignUp] Post-verification sign-in failed:',
@@ -729,14 +662,22 @@ export default function LoginScreen() {
       setMode('login');
       return;
     }
-    if (signInResult.accessToken && signInResult.refreshToken) {
-      await forceSessionPropagation(
-        signInResult.accessToken,
-        signInResult.refreshToken,
-        refreshSession
+
+    // Step 3: Force AppContext to re-read the Supabase session so
+    // currentUser flips from null to the new account BEFORE we
+    // navigate. Without this, the app briefly renders the tabs in
+    // "Guest" state — exactly the bug we're fixing.
+    const authUser = await refreshAuthState();
+    if (!authUser) {
+      setIsVerifying(false);
+      showAlert(
+        'Sign In Required',
+        'Your account was created. Please tap "Sign In" and log in with your new password.'
       );
+      setMode('login');
+      return;
     }
-    console.log('[SignUp] Sign-in confirmed, refreshing profile');
+    console.log('[SignUp] currentUser updated, refreshing profile');
 
     // Step 4: Pull avatar + username (empty for brand-new accounts —
     // harmless, will just return no rows).
@@ -831,15 +772,12 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    (operationLoading || cooldownSecs > 0) &&
-                      styles.buttonDisabled,
+                    cooldownSecs > 0 && styles.buttonDisabled,
                   ]}
                   onPress={handleForgotSendOTP}
-                  disabled={operationLoading || cooldownSecs > 0}
+                  disabled={cooldownSecs > 0}
                 >
-                  {operationLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : cooldownSecs > 0 ? (
+                  {cooldownSecs > 0 ? (
                     <Text style={styles.primaryButtonText}>
                       Retry in {cooldownSecs}s
                     </Text>
@@ -915,12 +853,12 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    (operationLoading || isResetting) && styles.buttonDisabled,
+                    isResetting && styles.buttonDisabled,
                   ]}
                   onPress={handleResetPassword}
-                  disabled={operationLoading || isResetting}
+                  disabled={isResetting}
                 >
-                  {operationLoading || isResetting ? (
+                  {isResetting ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={styles.primaryButtonText}>
@@ -957,12 +895,12 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    (operationLoading || isVerifying) && styles.buttonDisabled,
+                    isVerifying && styles.buttonDisabled,
                   ]}
                   onPress={handleVerifyOTP}
-                  disabled={operationLoading || isVerifying}
+                  disabled={isVerifying}
                 >
-                  {operationLoading || isVerifying ? (
+                  {isVerifying ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <Text style={styles.primaryButtonText}>
@@ -1048,19 +986,17 @@ export default function LoginScreen() {
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    (operationLoading ||
-                      isSigningIn ||
+                    (isSigningIn ||
                       (mode === 'register' && cooldownSecs > 0)) &&
                       styles.buttonDisabled,
                   ]}
                   onPress={mode === 'login' ? handleLogin : handleSendOTP}
                   disabled={
-                    operationLoading ||
                     isSigningIn ||
                     (mode === 'register' && cooldownSecs > 0)
                   }
                 >
-                  {operationLoading || isSigningIn ? (
+                  {isSigningIn ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : mode === 'register' && cooldownSecs > 0 ? (
                     <Text style={styles.primaryButtonText}>
