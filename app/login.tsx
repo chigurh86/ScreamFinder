@@ -42,6 +42,47 @@ async function sendOtpDirect(
 }
 
 /**
+ * Sign-in flow — bypasses the template's signInWithPassword wrapper so
+ * the actual Supabase error surfaces (e.g. "Invalid login credentials",
+ * "Email not confirmed") instead of a generic "Login Failed" message.
+ */
+async function signInWithPasswordDirect(
+  email: string,
+  password: string
+): Promise<{ error: string | null; hasSession: boolean }> {
+  try {
+    const supabase = getSupabaseClient();
+    // Clear any lingering guest / stale session first so we don't collide
+    // with an existing anonymous session.
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      /* ignore — nothing to sign out of */
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) {
+      return { error: error.message || 'Sign in failed', hasSession: false };
+    }
+    if (!data?.session) {
+      return {
+        error:
+          'Signed in but no session was returned. Please try again.',
+        hasSession: false,
+      };
+    }
+    return { error: null, hasSession: true };
+  } catch (e) {
+    return {
+      error: e instanceof Error ? e.message : 'Network error',
+      hasSession: false,
+    };
+  }
+}
+
+/**
  * Password reset flow — bypasses the template's verifyOTPAndLogin, which
  * only supports NEW signups (never calls updateUser). For existing users
  * we must: (1) verifyOtp to establish a session, then (2) updateUser to
@@ -122,11 +163,58 @@ function humanizeAuthError(msg: string): string {
   return `${msg}\n\nTroubleshooting:\n\u2022 Check your spam / junk folder\n\u2022 Verify the email address is spelled correctly\n\u2022 Wait 60 seconds before trying again`;
 }
 
+/**
+ * Humanizes sign-in specific errors from Supabase.
+ */
+function humanizeSignInError(msg: string): string {
+  const lower = (msg || '').toLowerCase();
+  if (
+    lower.includes('invalid login credentials') ||
+    lower.includes('invalid credentials') ||
+    (lower.includes('invalid') && lower.includes('password'))
+  ) {
+    return 'Incorrect email or password. If you signed up with a code and never set a password, tap "Forgot Password?" below to set one now.';
+  }
+  if (
+    lower.includes('email not confirmed') ||
+    lower.includes('email_not_confirmed') ||
+    lower.includes('confirm your email')
+  ) {
+    return 'Your email address has not been confirmed yet. Please check your inbox (and spam folder) for the verification link, or use "Forgot Password?" to receive a new code.';
+  }
+  if (
+    lower.includes('user not found') ||
+    (lower.includes('user') && lower.includes('does not exist'))
+  ) {
+    return 'No account found with this email. Tap "Sign Up" below to create one.';
+  }
+  if (
+    lower.includes('rate') ||
+    lower.includes('too many') ||
+    lower.includes('security purposes')
+  ) {
+    return 'Too many sign-in attempts. Please wait a minute and try again.';
+  }
+  if (
+    lower.includes('network') ||
+    lower.includes('fetch') ||
+    lower.includes('failed to fetch')
+  ) {
+    return 'Network error \u2014 please check your internet connection and try again.';
+  }
+  return `${msg}\n\nIf you signed up with a verification code, you may not have set a password yet. Tap "Forgot Password?" to set one.`;
+}
+
 type AuthMode = 'login' | 'register' | 'otp' | 'forgot' | 'resetPassword';
 
 export default function LoginScreen() {
-  const { sendOTP, verifyOTPAndLogin, signInWithPassword, operationLoading } =
-    useAuth();
+  const {
+    sendOTP,
+    verifyOTPAndLogin,
+    signInWithPassword,
+    refreshSession,
+    operationLoading,
+  } = useAuth();
   const { showAlert } = useAlert();
   const router = useRouter();
 
@@ -155,16 +243,43 @@ export default function LoginScreen() {
     return () => clearInterval(t);
   }, [cooldownSecs]);
 
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       showAlert('Missing Fields', 'Please enter both email and password.');
       return;
     }
-    const { error } = await signInWithPassword(email.trim(), password);
+    setIsSigningIn(true);
+    // Direct Supabase call — surfaces the real error ("Invalid login
+    // credentials", "Email not confirmed", etc.) instead of the template
+    // wrapper's generic "Login Failed" that gives users no guidance.
+    const { error, hasSession } = await signInWithPasswordDirect(
+      email.trim(),
+      password
+    );
     if (error) {
-      showAlert('Sign In Failed', error);
+      setIsSigningIn(false);
+      showAlert('Sign In Failed', humanizeSignInError(error));
       return;
     }
+    if (!hasSession) {
+      setIsSigningIn(false);
+      showAlert(
+        'Sign In Failed',
+        'Signed in but the session was not persisted. Please try again.'
+      );
+      return;
+    }
+    // Force the AuthProvider to re-read the freshly-created session so the
+    // "Guest" state in the app flips over to the logged-in user before we
+    // navigate away.
+    try {
+      await refreshSession();
+    } catch {
+      /* non-fatal — the auth listener will catch up on its own */
+    }
+    setIsSigningIn(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     router.replace('/(tabs)');
   };
@@ -593,16 +708,18 @@ export default function LoginScreen() {
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
                     (operationLoading ||
+                      isSigningIn ||
                       (mode === 'register' && cooldownSecs > 0)) &&
                       styles.buttonDisabled,
                   ]}
                   onPress={mode === 'login' ? handleLogin : handleSendOTP}
                   disabled={
                     operationLoading ||
+                    isSigningIn ||
                     (mode === 'register' && cooldownSecs > 0)
                   }
                 >
-                  {operationLoading ? (
+                  {operationLoading || isSigningIn ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : mode === 'register' && cooldownSecs > 0 ? (
                     <Text style={styles.primaryButtonText}>
