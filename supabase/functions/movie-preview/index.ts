@@ -130,16 +130,15 @@ function buildHtml(params: PageParams): string {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      padding: 8px 0 20px;
-      font-weight: 800;
-      font-size: 18px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
+      padding: 12px 0 22px;
     }
-    .brand .drop { font-size: 20px; }
-    .brand .scream { color: #DC2626; }
-    .brand .finder { color: #E5E5E7; }
+    .brand svg {
+      display: block;
+      width: auto;
+      height: 42px;
+      max-width: 90%;
+      filter: drop-shadow(0 4px 14px rgba(220, 38, 38, 0.35));
+    }
 
     .card {
       background: #16161C;
@@ -293,9 +292,60 @@ function buildHtml(params: PageParams): string {
 </head>
 <body>
   <div class="wrap">
-    <div class="brand">
-      <span class="drop">\ud83e\ude78</span>
-      <span class="scream">SCREAM</span><span class="finder">FINDER</span>
+    <div class="brand" role="img" aria-label="ScreamFinder">
+      <!-- ScreamFinder wordmark with knife accent, matching the in-app knife-logo.png branding. -->
+      <svg viewBox="0 0 520 96" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="blade" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#F5F5F7"/>
+            <stop offset="55%" stop-color="#D4D4D8"/>
+            <stop offset="100%" stop-color="#9CA3AF"/>
+          </linearGradient>
+          <linearGradient id="handle" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#3F3F46"/>
+            <stop offset="100%" stop-color="#18181B"/>
+          </linearGradient>
+          <linearGradient id="bloodDrip" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#DC2626"/>
+            <stop offset="100%" stop-color="#7F1D1D"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Knife (blade pointing right, dripping blood) -->
+        <g transform="translate(6, 28)">
+          <!-- Blade -->
+          <path d="M 26 12 L 96 20 L 96 28 L 26 36 L 22 32 L 22 16 Z" fill="url(#blade)" stroke="#71717A" stroke-width="0.8"/>
+          <!-- Blade edge highlight -->
+          <path d="M 30 15 L 92 22 L 92 24 L 30 20 Z" fill="#FAFAFA" opacity="0.7"/>
+          <!-- Blood smear on blade -->
+          <path d="M 50 22 Q 65 24 82 24 Q 68 27 50 26 Z" fill="#DC2626" opacity="0.75"/>
+          <!-- Guard -->
+          <rect x="18" y="10" width="6" height="28" rx="1.5" fill="#52525B"/>
+          <!-- Handle -->
+          <rect x="0" y="16" width="20" height="16" rx="3" fill="url(#handle)"/>
+          <rect x="3" y="19" width="14" height="1.2" fill="#DC2626" opacity="0.85"/>
+          <rect x="3" y="28" width="14" height="1.2" fill="#DC2626" opacity="0.85"/>
+          <!-- Pommel -->
+          <circle cx="2" cy="24" r="3" fill="#DC2626"/>
+          <!-- Blood drip from blade tip -->
+          <path d="M 96 28 Q 100 34 98 44 Q 95 46 93 44 Q 91 34 94 28 Z" fill="url(#bloodDrip)"/>
+          <circle cx="96" cy="52" r="2" fill="#DC2626"/>
+        </g>
+
+        <!-- Wordmark: SCREAMFINDER -->
+        <text x="116" y="60"
+              font-family="Impact, 'Arial Black', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+              font-weight="900"
+              font-size="48"
+              letter-spacing="1.5">
+          <tspan fill="#DC2626">SCREAM</tspan><tspan fill="#F5F5F7">FINDER</tspan>
+        </text>
+        <!-- Blood drops falling below wordmark -->
+        <circle cx="178" cy="78" r="3" fill="#DC2626"/>
+        <circle cx="260" cy="82" r="2.2" fill="#DC2626"/>
+        <circle cx="342" cy="79" r="2.6" fill="#DC2626"/>
+        <circle cx="424" cy="84" r="2" fill="#DC2626"/>
+      </svg>
     </div>
 
     <div class="card">
