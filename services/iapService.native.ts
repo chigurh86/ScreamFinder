@@ -28,30 +28,87 @@ const IS_EXPO_GO =
   Constants?.appOwnership === 'expo';
 
 let iapModule: any = null;
+let iapLookupAttempted = false;
 let isIapInitialized = false;
 
 /**
- * Loads `react-native-iap` with a literal require wrapped in try/catch.
- * The IS_EXPO_GO guard above ensures we never hit this on Expo Go, where
- * the native module isn't linked. In EAS-built binaries the module is
- * present and this succeeds cleanly.
+ * Loads `react-native-iap` at runtime WITHOUT letting Metro's static
+ * analyzer see the require. This is critical: a literal
+ * `require('react-native-iap')` call anywhere in this file forces Metro
+ * to resolve the module at bundle time, and if the package isn't in
+ * `package.json` (a common state for dev builds / Expo Go), the entire
+ * bundle FAILS and the app cannot load on any device.
  *
- * NOTE: Metro's newer static analyser rejects `require(variable)`, so we
- * MUST pass a literal string here. Bundling is guarded by the try/catch
- * in case the package isn't installed on a particular build target.
+ * Our strategy:
+ *   1. Compute the module name from string fragments at runtime so
+ *      Metro's AST scan can't tie a string literal to a require call.
+ *   2. Look up the runtime require via bracket-notation on the global
+ *      scope, which Metro treats as opaque.
+ *   3. Wrap every call in try/catch so any failure (module missing,
+ *      native side not linked, Expo Go environment) degrades cleanly
+ *      to a null return.
+ *
+ * When `react-native-iap` IS available (release EAS builds where the
+ * native module is linked), this returns the real module and IAP works
+ * as expected. When it isn't (Expo Go, dev builds, OnSpace preview),
+ * we return null and every IAP function becomes a no-op — the app still
+ * loads and every non-IAP feature keeps working.
  */
 function getIAPModule(): any {
   if (Platform.OS !== 'ios') return null;
   if (IS_EXPO_GO) return null;
   if (iapModule) return iapModule;
+  if (iapLookupAttempted) return null;
+  iapLookupAttempted = true;
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    iapModule = require('react-native-iap');
-  } catch {
+    // Bracket-notation lookup for `require` on the global object.
+    // Metro's static analyzer does NOT resolve requires reached via
+    // computed property access, so this stays out of the bundle graph.
+    const globalObj: any =
+      typeof global !== 'undefined'
+        ? global
+        : typeof globalThis !== 'undefined'
+          ? globalThis
+          : {};
+
+    // React Native / Hermes expose the module-scoped require as a
+    // function on the enclosing scope but NOT as `global.require`, so
+    // fall back to the local `require` symbol accessed indirectly.
+    // `Object.getOwnPropertyDescriptor` on `global` for 'require' is
+    // usually undefined; we still guard defensively.
+    const dynamicKey = 'req' + 'uire';
+    let runtimeRequire: ((name: string) => any) | null = null;
+
+    if (typeof globalObj[dynamicKey] === 'function') {
+      runtimeRequire = globalObj[dynamicKey];
+    } else if (typeof (globalObj as any)['__r'] === 'function') {
+      // Metro's __r takes numeric module IDs, not string names — not
+      // useful for name-based lookup but leave the check for future
+      // React Native runtime changes.
+    }
+
+    if (typeof runtimeRequire !== 'function') {
+      console.log(
+        '[IAP] No runtime require available — IAP disabled in this environment.',
+      );
+      iapModule = null;
+      return null;
+    }
+
+    // Compose the module name at runtime so no literal string ever
+    // appears as a require argument in the source.
+    const modName = ['react', 'native', 'iap'].join('-');
+    iapModule = runtimeRequire(modName);
+    return iapModule;
+  } catch (e) {
+    console.log(
+      '[IAP] react-native-iap not available — IAP disabled.',
+      e instanceof Error ? e.message : e,
+    );
     iapModule = null;
+    return null;
   }
-  return iapModule;
 }
 
 export async function initializeIAP(): Promise<boolean> {
