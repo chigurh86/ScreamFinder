@@ -57,6 +57,11 @@ export default function MovieDetailScreen() {
    * Native (iOS/Android): React Native's Share.share() surfaces Messages,
    * Mail, WhatsApp, and any other installed share targets.
    * Web: falls back to navigator.share() or clipboard copy.
+   *
+   * The message includes a link to our /movie-preview edge function which
+   * returns an HTML page with Open Graph tags, so messaging apps render
+   * a rich preview card (movie poster + title + description). Tapping the
+   * card opens a landing page with a "Get ScreamFinder" App Store CTA.
    */
   const handleShare = useCallback(async () => {
     if (!movie) return;
@@ -70,12 +75,33 @@ export default function MovieDetailScreen() {
       movie.streamingOn && movie.streamingOn.length > 0
         ? `\n\nStreaming on: ${movie.streamingOn.join(', ')}`
         : '';
-    const desc = movie.description ? `\n\n${movie.description}` : '';
+    const desc = movie.description
+      ? `\n\n${movie.description.length > 220 ? movie.description.slice(0, 219).trimEnd() + '\u2026' : movie.description}`
+      : '';
+
+    // Build a URL to the movie-preview edge function so recipients see a
+    // rich preview card (poster + info) in iMessage/WhatsApp/etc.
+    const BACKEND_URL = 'https://edrhopkytkvaktededrh.backend.onspace.ai';
+    const previewParams = new URLSearchParams();
+    previewParams.set('t', movie.title);
+    if (movie.year) previewParams.set('y', String(movie.year));
+    if (movie.description) {
+      // Trim description to keep the URL manageable
+      previewParams.set('d', movie.description.slice(0, 300));
+    }
+    if (movie.posterUrl) previewParams.set('p', movie.posterUrl);
+    if (movie.type) previewParams.set('type', movie.type);
+    if (movie.streamingOn && movie.streamingOn.length > 0) {
+      previewParams.set('s', movie.streamingOn.join(','));
+    }
+    if (movie.rating != null) previewParams.set('r', String(movie.rating));
+    const previewUrl = `${BACKEND_URL}/functions/v1/movie-preview?${previewParams.toString()}`;
+
     const message =
-      `You need to watch this horror ${kind}: ${movie.title}${yearPart}` +
+      `\ud83e\ude78 Horror rec from ScreamFinder:\n\n${movie.title}${yearPart}` +
       desc +
       platforms +
-      `\n\nFound on ScreamFinder \u2014 the horror recommendation app.`;
+      `\n\n${previewUrl}`;
 
     // ---- Web branch ----
     if (Platform.OS === 'web') {
