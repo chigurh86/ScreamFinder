@@ -25,7 +25,7 @@ import {
 } from '../services/iapService';
 import type { IAPProduct } from '../services/iapService';
 
-const FREE_DAILY_LIMIT = 3;
+const FREE_DAILY_LIMIT = 5;
 const FREE_FAVORITES_LIMIT = 5;
 
 export interface IAPPricing {

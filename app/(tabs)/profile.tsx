@@ -477,10 +477,6 @@ export default function ProfileScreen() {
             </Text>
             <Text style={styles.statLabel}>Searches Left</Text>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{searchHistory.length}</Text>
-            <Text style={styles.statLabel}>History</Text>
-          </View>
         </Animated.View>
 
         {/* Upgrade Card (only if not subscribed) */}

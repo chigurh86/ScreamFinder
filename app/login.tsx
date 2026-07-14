@@ -1039,7 +1039,7 @@ export default function LoginScreen() {
           >
             <Ionicons name="gift-outline" size={18} color={theme.accent} />
             <Text style={styles.freeInfoText}>
-              3 free searches per day included
+              5 free searches per day included
             </Text>
           </Animated.View>
         </ScrollView>
