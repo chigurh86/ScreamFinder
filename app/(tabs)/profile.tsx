@@ -22,6 +22,7 @@ import { useAlert } from '@/template';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { theme } from '../../constants/theme';
+import { FREE_DAILY_LIMIT, FREE_FAVORITES_LIMIT } from '../../constants/config';
 import { useApp } from '../../contexts/AppContext';
 import {
   requestSubscription,
@@ -461,18 +462,24 @@ export default function ProfileScreen() {
         {/* Stats Row */}
         <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{savedMovies.length}</Text>
+            <Text style={styles.statValue}>
+              {isSubscribed
+                ? String(savedMovies.length)
+                : `${savedMovies.length}/${FREE_FAVORITES_LIMIT}`}
+            </Text>
             <Text style={styles.statLabel}>Saved</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>
-              {isSubscribed ? '\u221E' : String(remainingSearches)}
+              {isSubscribed
+                ? '\u221E'
+                : `${remainingSearches}/${FREE_DAILY_LIMIT}`}
             </Text>
             <Text style={styles.statLabel}>Searches Left</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{searchHistory.length}</Text>
-            <Text style={styles.statLabel}>Searches</Text>
+            <Text style={styles.statLabel}>History</Text>
           </View>
         </Animated.View>
 
