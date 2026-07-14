@@ -707,11 +707,19 @@ export default function LoginScreen() {
             entering={FadeInDown.duration(500)}
             style={styles.brandSection}
           >
-            <Image
-              source={require('../assets/images/spooky-eyes.png')}
-              style={styles.spookyEyes}
-              contentFit="contain"
-            />
+            <Pressable
+              onPress={handleLogoPress}
+              hitSlop={12}
+              accessibilityLabel="Return to home"
+              accessibilityRole="button"
+              style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+            >
+              <Image
+                source={require('../assets/images/spooky-eyes.png')}
+                style={styles.spookyEyes}
+                contentFit="contain"
+              />
+            </Pressable>
             <Pressable
               onPress={handleLogoPress}
               hitSlop={12}
