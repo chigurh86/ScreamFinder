@@ -5,54 +5,43 @@ import { getSupabaseClient } from '@/template';
 /**
  * Native (iOS/Android) implementation of the avatar upload service.
  *
- * `base64-arraybuffer` is loaded via a parameter-based dynamic `require()`
- * so Metro cannot statically pre-resolve it. If the package is missing
- * from `node_modules` the app still bundles and we fall back to a manual
- * base64 → Uint8Array decode.
+ * Uses a pure-JS base64 -> ArrayBuffer decoder so we don't depend on
+ * `base64-arraybuffer` (which would require a dynamic require that
+ * Metro's newer static analyser rejects) or Hermes-unsupported globals
+ * like `atob` / `Buffer`.
  */
 
-let base64Decoder: ((base64: string) => ArrayBuffer) | null = null;
-let base64LoadAttempted = false;
+const BASE64_CHARS =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-function loadOptionalModule(name: string): any {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(name);
-  } catch {
-    return null;
+/**
+ * Pure-JS base64 -> ArrayBuffer decoder. Ignores whitespace and standard
+ * padding. Handles URL-safe base64 (- and _) as well.
+ */
+function base64ToArrayBuffer(input: string): ArrayBuffer {
+  const clean = input.replace(/[^A-Za-z0-9+/=_-]/g, '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const padLen = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  const byteLen = Math.floor((clean.length * 3) / 4) - padLen;
+  const bytes = new Uint8Array(byteLen);
+
+  let outIdx = 0;
+  for (let i = 0; i < clean.length; i += 4) {
+    const c1 = BASE64_CHARS.indexOf(clean.charAt(i));
+    const c2 = BASE64_CHARS.indexOf(clean.charAt(i + 1));
+    const c3 = BASE64_CHARS.indexOf(clean.charAt(i + 2));
+    const c4 = BASE64_CHARS.indexOf(clean.charAt(i + 3));
+
+    const b1 = (c1 << 2) | (c2 >> 4);
+    const b2 = ((c2 & 15) << 4) | (c3 >> 2);
+    const b3 = ((c3 & 3) << 6) | c4;
+
+    if (outIdx < byteLen) bytes[outIdx++] = b1;
+    if (outIdx < byteLen) bytes[outIdx++] = b2;
+    if (outIdx < byteLen) bytes[outIdx++] = b3;
   }
-}
-
-function getBase64Decoder(): (base64: string) => ArrayBuffer {
-  if (base64Decoder) return base64Decoder;
-  if (!base64LoadAttempted) {
-    base64LoadAttempted = true;
-    // Assemble the package name at runtime so no literal ends up in source.
-    const parts: string[] = [];
-    parts.push('base64');
-    parts.push('arraybuffer');
-    const moduleName = parts.join('-');
-    const mod = loadOptionalModule(moduleName);
-    if (mod && typeof mod.decode === 'function') {
-      base64Decoder = mod.decode;
-      return base64Decoder as (base64: string) => ArrayBuffer;
-    }
-  }
-
-  // Manual fallback if the module isn't available.
-  base64Decoder = (base64: string): ArrayBuffer => {
-    const binaryString =
-      typeof atob === 'function'
-        ? atob(base64)
-        : Buffer.from(base64, 'base64').toString('binary');
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-  };
-  return base64Decoder;
+  return bytes.buffer;
 }
 
 /**
@@ -103,8 +92,7 @@ export async function pickAndUploadAvatar(userId: string): Promise<string | null
 
   try {
     if (asset.base64) {
-      const decode = getBase64Decoder();
-      const arrayBuffer = decode(asset.base64);
+      const arrayBuffer = base64ToArrayBuffer(asset.base64);
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(fileName, arrayBuffer, {
@@ -120,12 +108,7 @@ export async function pickAndUploadAvatar(userId: string): Promise<string | null
       } catch {
         if (asset.uri.startsWith('data:')) {
           const [header, b64Data] = asset.uri.split(',');
-          const byteString = atob(b64Data);
-          const ab = new ArrayBuffer(byteString.length);
-          const ia = new Uint8Array(ab);
-          for (let i = 0; i < byteString.length; i++) {
-            ia[i] = byteString.charCodeAt(i);
-          }
+          const ab = base64ToArrayBuffer(b64Data);
           const detectedMime = header?.match(/:(.*?);/)?.[1] || mimeType;
           blob = new Blob([ab], { type: detectedMime });
         } else {

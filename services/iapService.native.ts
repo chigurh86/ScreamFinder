@@ -31,35 +31,26 @@ let iapModule: any = null;
 let isIapInitialized = false;
 
 /**
- * Runtime module loader. Metro's static analyser only recognises the
- * pattern `require('literal string')` as a bundling target — because
- * `name` here is a function parameter, Metro will NOT attempt to
- * statically resolve or pre-assign a module ID to `react-native-iap`.
- * That avoids the "Requiring unknown module <id>" runtime error we see
- * in Expo Go where the native module is not linked.
+ * Loads `react-native-iap` with a literal require wrapped in try/catch.
+ * The IS_EXPO_GO guard above ensures we never hit this on Expo Go, where
+ * the native module isn't linked. In EAS-built binaries the module is
+ * present and this succeeds cleanly.
+ *
+ * NOTE: Metro's newer static analyser rejects `require(variable)`, so we
+ * MUST pass a literal string here. Bundling is guarded by the try/catch
+ * in case the package isn't installed on a particular build target.
  */
-function loadNativeIap(name: string): any {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(name);
-  } catch {
-    return null;
-  }
-}
-
 function getIAPModule(): any {
   if (Platform.OS !== 'ios') return null;
   if (IS_EXPO_GO) return null;
   if (iapModule) return iapModule;
 
-  // Assemble the package name at runtime so it never appears as a
-  // literal argument to `require()` anywhere in the source Metro parses.
-  const parts: string[] = [];
-  parts.push('react');
-  parts.push('native');
-  parts.push('iap');
-  const moduleName = parts.join('-');
-  iapModule = loadNativeIap(moduleName);
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    iapModule = require('react-native-iap');
+  } catch {
+    iapModule = null;
+  }
   return iapModule;
 }
 
