@@ -54,28 +54,15 @@ export default function MovieDetailScreen() {
 
   /**
    * Opens the native share sheet with a formatted recommendation.
-   *
-   * - iOS/Android: uses React Native's Share.share() which surfaces
-   *   Messages (SMS/iMessage), Mail, WhatsApp, and any other installed
-   *   share targets.
-   * - Web (OnSpace live preview, Expo Web): React Native's Share.share()
-   *   silently no-ops on web, so we fall through to navigator.share()
-   *   (mobile browsers) or copy-to-clipboard (desktop browsers) and
-   *   surface a confirmation dialog so the button always DOES something.
-   *
-   * If any path fails (permission denied, sheet blocked, etc.) we show an
-   * alert instead of failing silently, and log to the console so we can
-   * diagnose issues in the future.
+   * Native (iOS/Android): React Native's Share.share() surfaces Messages,
+   * Mail, WhatsApp, and any other installed share targets.
+   * Web: falls back to navigator.share() or clipboard copy.
    */
   const handleShare = useCallback(async () => {
     if (!movie) return;
-    console.log('[MovieDetail] Send-to-friend pressed for', movie.title, 'platform:', Platform.OS);
 
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {
-      /* haptics not critical */
-    }
+    // Haptics is fire-and-forget; never let it block share.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
     const kind = movie.type === 'movie' ? 'movie' : 'show';
     const yearPart = movie.year ? ` (${movie.year})` : '';
@@ -85,110 +72,60 @@ export default function MovieDetailScreen() {
         : '';
     const desc = movie.description ? `\n\n${movie.description}` : '';
     const message =
-      `\uD83D\uDD2A You need to watch this horror ${kind}: ${movie.title}${yearPart}` +
+      `You need to watch this horror ${kind}: ${movie.title}${yearPart}` +
       desc +
       platforms +
       `\n\nFound on ScreamFinder \u2014 the horror recommendation app.`;
 
-    // ---- Web branch: React Native's Share API does not work on web ----
-    // navigator.share() only works when:
-    //   - the page is served over HTTPS,
-    //   - the call is inside a user gesture, AND
-    //   - the page is either top-level OR its parent iframe has
-    //     allow="web-share" set.
-    // The OnSpace live preview runs in an iframe WITHOUT that permission,
-    // so navigator.share() throws "Permission denied". If sharing fails
-    // for ANY reason (permission denied, user cancelled, unsupported),
-    // we silently fall back to copy-to-clipboard so the button always
-    // does something useful.
+    // ---- Web branch ----
     if (Platform.OS === 'web') {
-      const nav =
-        typeof window !== 'undefined' ? (window as any).navigator : null;
-
-      // First attempt: native web share sheet (works on mobile browsers
-      // and standalone browser tabs, fails inside restricted iframes).
-      if (nav?.share) {
-        try {
-          await nav.share({
-            title: `${movie.title}${yearPart}`,
-            text: message,
-          });
-          return; // success
-        } catch (e) {
-          const err = e as Error & { name?: string };
-          // User dismissed the share sheet on purpose — do nothing.
-          if (err?.name === 'AbortError') return;
-          // Any other failure (NotAllowedError, permission denied inside
-          // iframe, unsupported target, etc.) falls through to clipboard.
-          console.log(
-            '[MovieDetail] navigator.share unavailable, falling back to clipboard:',
-            err?.message || err,
-          );
-        }
-      }
-
-      // Fallback: copy the recommendation to the clipboard.
       try {
+        const win: any =
+          typeof window !== 'undefined' ? window : null;
+        const nav = win?.navigator;
+
+        if (nav?.share) {
+          try {
+            await nav.share({
+              title: `${movie.title}${yearPart}`,
+              text: message,
+            });
+            return;
+          } catch (shareErr: any) {
+            if (shareErr?.name === 'AbortError') return;
+            // fall through to clipboard
+          }
+        }
+
         if (nav?.clipboard?.writeText) {
           await nav.clipboard.writeText(message);
           showAlert(
             'Copied to Clipboard',
-            'Sharing is blocked in this preview window, so we copied the recommendation instead. Paste it into any messaging app to send it to a friend.\n\nOn a real device, this button opens Messages, Mail, WhatsApp, and other apps directly.',
+            'Sharing is blocked in this preview window, so we copied the recommendation instead. Paste it into any messaging app to send it to a friend.',
           );
           return;
         }
-      } catch (e) {
-        console.warn('[MovieDetail] Clipboard write failed:', e);
-      }
 
-      // Last-resort fallback: legacy execCommand copy.
-      try {
-        if (typeof document !== 'undefined') {
-          const ta = document.createElement('textarea');
-          ta.value = message;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          const ok = document.execCommand && document.execCommand('copy');
-          document.body.removeChild(ta);
-          if (ok) {
-            showAlert(
-              'Copied to Clipboard',
-              'Paste the recommendation into any messaging app to share it with a friend.',
-            );
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('[MovieDetail] execCommand copy failed:', e);
+        showAlert(
+          'Sharing Unavailable',
+          'Please try again on the mobile app, where the native share sheet is available.',
+        );
+      } catch (webErr) {
+        showAlert(
+          'Share Failed',
+          webErr instanceof Error ? webErr.message : 'Please try again.',
+        );
       }
-
-      showAlert(
-        'Sharing Unavailable',
-        'Your browser blocked sharing. Please try again on the mobile app, where the native share sheet is available.',
-      );
       return;
     }
 
     // ---- Native branch: iOS / Android ----
     try {
-      const result = await Share.share(
-        {
-          message,
-          title: `${movie.title}${yearPart}`,
-        },
-        {
-          dialogTitle: `Share ${movie.title}`,
-          subject: `Horror recommendation: ${movie.title}${yearPart}`,
-        },
-      );
-      console.log(
-        '[MovieDetail] Share sheet result:',
-        result?.action || 'unknown',
-      );
+      await Share.share({
+        message,
+        title: `${movie.title}${yearPart}`,
+      });
     } catch (e) {
-      console.error('[MovieDetail] Native share failed:', e);
       showAlert(
         'Share Failed',
         e instanceof Error
@@ -261,43 +198,6 @@ export default function MovieDetailScreen() {
 
           </View>
         </Animated.View>
-
-        {/* Close button - rendered outside hero so it stays on top across all platforms */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.closeButton,
-            { top: Math.max(insets.top, Platform.OS === 'web' ? 16 : 8) + 12 },
-            pressed && styles.closeButtonPressed,
-          ]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.back();
-          }}
-          hitSlop={16}
-          accessibilityLabel="Close movie details"
-          accessibilityRole="button"
-        >
-          <Ionicons name="close" size={26} color="#fff" />
-        </Pressable>
-
-        {/* Share button - top-right, mirrors the close button */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.shareButton,
-            { top: Math.max(insets.top, Platform.OS === 'web' ? 16 : 8) + 12 },
-            pressed && styles.shareButtonPressed,
-          ]}
-          onPress={handleShare}
-          hitSlop={16}
-          accessibilityLabel={`Share ${movie.title} with a friend`}
-          accessibilityRole="button"
-        >
-          <Ionicons
-            name={Platform.OS === 'ios' ? 'share-outline' : 'share-social-outline'}
-            size={22}
-            color="#fff"
-          />
-        </Pressable>
 
         {/* Content */}
         <View style={styles.contentContainer}>
@@ -420,6 +320,39 @@ export default function MovieDetailScreen() {
           </Animated.View>
         </View>
       </ScrollView>
+
+      {/* Close button - fixed at top-left, floats above ScrollView */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.closeButton,
+          { top: Math.max(insets.top, Platform.OS === 'web' ? 16 : 8) + 12 },
+          pressed && styles.closeButtonPressed,
+        ]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          router.back();
+        }}
+        hitSlop={16}
+        accessibilityLabel="Close movie details"
+        accessibilityRole="button"
+      >
+        <Ionicons name="close" size={26} color="#fff" />
+      </Pressable>
+
+      {/* Share button - fixed at top-right, floats above ScrollView */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.shareButton,
+          { top: Math.max(insets.top, Platform.OS === 'web' ? 16 : 8) + 12 },
+          pressed && styles.shareButtonPressed,
+        ]}
+        onPress={handleShare}
+        hitSlop={16}
+        accessibilityLabel={`Share ${movie.title} with a friend`}
+        accessibilityRole="button"
+      >
+        <Ionicons name="share-social" size={22} color="#fff" />
+      </Pressable>
 
       {/* Upgrade Modal */}
       <UpgradeModal
