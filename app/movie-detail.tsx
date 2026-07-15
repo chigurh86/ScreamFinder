@@ -69,18 +69,13 @@ export default function MovieDetailScreen() {
     // Haptics is fire-and-forget; never let it block share.
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-    const kind = movie.type === 'movie' ? 'movie' : 'show';
     const yearPart = movie.year ? ` (${movie.year})` : '';
-    const platforms =
-      movie.streamingOn && movie.streamingOn.length > 0
-        ? `\n\nStreaming on: ${movie.streamingOn.join(', ')}`
-        : '';
-    const desc = movie.description
-      ? `\n\n${movie.description.length > 220 ? movie.description.slice(0, 219).trimEnd() + '\u2026' : movie.description}`
-      : '';
 
     // Build a URL to the movie-preview edge function so recipients see a
-    // rich preview card (poster + info) in iMessage/WhatsApp/etc.
+    // rich preview card (poster + info) in iMessage/WhatsApp/etc. The
+    // outgoing text message intentionally contains ONLY the intro line
+    // plus this URL, so messaging apps collapse the URL into the
+    // clickable poster card without noisy plain-text duplication.
     const BACKEND_URL = 'https://edrhopkytkvaktededrh.backend.onspace.ai';
     const previewParams = new URLSearchParams();
     previewParams.set('t', movie.title);
@@ -97,11 +92,7 @@ export default function MovieDetailScreen() {
     if (movie.rating != null) previewParams.set('r', String(movie.rating));
     const previewUrl = `${BACKEND_URL}/functions/v1/movie-preview?${previewParams.toString()}`;
 
-    const message =
-      `\ud83e\ude78 Horror rec from ScreamFinder:\n\n${movie.title}${yearPart}` +
-      desc +
-      platforms +
-      `\n\n${previewUrl}`;
+    const message = `\ud83e\ude78 Horror rec from ScreamFinder:\n\n${previewUrl}`;
 
     // ---- Web branch ----
     if (Platform.OS === 'web') {
