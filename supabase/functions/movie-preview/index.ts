@@ -34,6 +34,12 @@ const PLAY_STORE_URL = 'https://play.google.com/store/search?q=ScreamFinder+horr
 // Custom URL scheme registered in app.json. Used to try opening the app
 // on-device before falling back to a landing page.
 const APP_SCHEME = 'screamfinder://';
+// Public URL to the real in-app knife-logo.png. Rendered as an <img> at the
+// top of the shared movie-preview page. Falls back to the inline SVG wordmark
+// below if the file hasn't been uploaded to the 'app-assets' storage bucket
+// yet (via OnSpace Cloud → Storage → app-assets → upload knife-logo.png).
+const LOGO_URL =
+  'https://edrhopkytkvaktededrh.backend.onspace.ai/storage/v1/object/public/app-assets/knife-logo.png';
 // ---------------------------------------------------------------------------
 
 function escapeHtml(str: string): string {
@@ -131,6 +137,14 @@ function buildHtml(params: PageParams): string {
       align-items: center;
       justify-content: center;
       padding: 12px 0 22px;
+    }
+    .brand img.brand-logo {
+      display: block;
+      width: auto;
+      height: 96px;
+      max-width: 80%;
+      object-fit: contain;
+      filter: drop-shadow(0 6px 18px rgba(220, 38, 38, 0.4));
     }
     .brand svg {
       display: block;
@@ -293,8 +307,15 @@ function buildHtml(params: PageParams): string {
 <body>
   <div class="wrap">
     <div class="brand" role="img" aria-label="ScreamFinder">
-      <!-- ScreamFinder wordmark with knife accent, matching the in-app knife-logo.png branding. -->
-      <svg viewBox="0 0 520 96" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+      <!-- Primary: the actual in-app knife-logo.png served from the public app-assets Supabase Storage bucket. -->
+      <img
+        src="${escapeHtml(LOGO_URL)}"
+        alt="ScreamFinder"
+        class="brand-logo"
+        onerror="this.remove();var f=document.getElementById('brand-svg-fallback');if(f){f.style.display='block';}"
+      />
+      <!-- Fallback: inline SVG wordmark, shown only if the logo image fails to load (bucket empty, offline, etc.). -->
+      <svg id="brand-svg-fallback" style="display:none;" viewBox="0 0 520 96" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
         <defs>
           <linearGradient id="blade" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stop-color="#F5F5F7"/>
