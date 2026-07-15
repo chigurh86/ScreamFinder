@@ -34,12 +34,13 @@ const PLAY_STORE_URL = 'https://play.google.com/store/search?q=ScreamFinder+horr
 // Custom URL scheme registered in app.json. Used to try opening the app
 // on-device before falling back to a landing page.
 const APP_SCHEME = 'screamfinder://';
-// Public URL to the real in-app knife-logo.png. Rendered as an <img> at the
-// top of the shared movie-preview page. Falls back to the inline SVG wordmark
-// below if the file hasn't been uploaded to the 'app-assets' storage bucket
-// yet (via OnSpace Cloud → Storage → app-assets → upload knife-logo.png).
+// Public URL to the official ScreamFinder wordmark logo (red circle icon +
+// "SCREAM FINDER" text on a black background). Hosted on OnSpace's CDN so
+// the preview page renders the real brand logo without a separate storage
+// bucket upload step. Falls back to the inline SVG wordmark below if the
+// image ever fails to load.
 const LOGO_URL =
-  'https://edrhopkytkvaktededrh.backend.onspace.ai/storage/v1/object/public/app-assets/knife-logo.png';
+  'https://cdn-ai.onspace.ai/onspace/files/GzQBDHBzT4M8b2VzPzYCHf/IMG_6721.jpeg';
 // ---------------------------------------------------------------------------
 
 function escapeHtml(str: string): string {
