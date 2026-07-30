@@ -3,6 +3,7 @@ import { Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSupabaseClient } from '@/template';
 import type { Movie } from '../services/recommendationService';
+import { setUserContext, addBreadcrumb } from '../services/errorReportingService';
 
 /**
  * Minimal user shape (mirrors the template's AuthUser). We manage this
@@ -97,6 +98,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     userId: null,
     cancelled: false,
   });
+  // Marks whether guest search usage has been loaded from AsyncStorage OR
+  // written by a decrementSearches call. Prevents the async initial load
+  // from clobbering a fresh in-memory increment (which was letting guests
+  // search past the daily limit without ever hitting the paywall).
+  const guestUsageLoadedRef = useRef(false);
 
   const remaining = isSubscribed ? Infinity : Math.max(0, FREE_DAILY_LIMIT - searchCount);
   const isAtLimit = !isSubscribed && searchCount >= FREE_DAILY_LIMIT;
@@ -123,7 +129,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .then(({ data }) => {
         if (!mounted) return;
         if (data?.session?.user) {
-          setCurrentUser(toAuthUser(data.session.user));
+          const authUser = toAuthUser(data.session.user);
+          setCurrentUser(authUser);
+          try {
+            setUserContext({ id: authUser.id, email: authUser.email });
+          } catch {
+            /* ignore Sentry tagging errors */
+          }
         }
       })
       .catch(() => {
@@ -140,12 +152,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           'user:',
           session?.user?.email || 'none',
         );
+        try {
+          addBreadcrumb(`auth:${event}`, 'auth', {
+            hasUser: !!session?.user,
+          });
+        } catch {
+          /* breadcrumb failure never affects auth flow */
+        }
         if (session?.user) {
-          setCurrentUser(toAuthUser(session.user));
+          const authUser = toAuthUser(session.user);
+          setCurrentUser(authUser);
+          try {
+            setUserContext({ id: authUser.id, email: authUser.email });
+          } catch {
+            /* ignore Sentry tagging errors */
+          }
         } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
           setCurrentUser(null);
           setAvatarUrl(null);
           setProfileName(null);
+          try {
+            setUserContext(null);
+          } catch {
+            /* ignore Sentry tagging errors */
+          }
         }
       },
     );
@@ -282,19 +312,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setAvatarUrl(null);
       setProfileName(null);
 
-      // Guest mode: load today's search count from AsyncStorage
+      // Guest mode: load today's search count from AsyncStorage. Only
+      // apply the loaded value if a decrementSearches call hasn't already
+      // written to storage in the meantime — otherwise a slow AsyncStorage
+      // read can overwrite a fresh increment and let guests search past
+      // the daily limit forever.
       (async () => {
         try {
           const today = new Date().toISOString().split('T')[0];
           const stored = await AsyncStorage.getItem(GUEST_USAGE_KEY);
+          if (guestUsageLoadedRef.current) {
+            // A search already ran and wrote to storage; don't clobber it.
+            return;
+          }
           if (stored) {
             const parsed = JSON.parse(stored) as { date: string; count: number };
             setSearchCount(parsed.date === today ? (parsed.count || 0) : 0);
           } else {
             setSearchCount(0);
           }
+          guestUsageLoadedRef.current = true;
         } catch {
-          setSearchCount(0);
+          if (!guestUsageLoadedRef.current) {
+            setSearchCount(0);
+            guestUsageLoadedRef.current = true;
+          }
         } finally {
           setUsageLoaded(true);
         }
@@ -439,8 +481,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const today = new Date().toISOString().split('T')[0];
 
     if (!currentUser) {
-      // Guest mode: persist daily count in AsyncStorage
-      const newCount = searchCount + 1;
+      // Guest mode: AsyncStorage is the source of truth. Read the latest
+      // stored value first so we never lose an increment to a stale React
+      // closure or a still-in-flight initial load. This is what makes the
+      // guest paywall actually fire after 5 searches.
+      let baseCount = 0;
+      try {
+        const stored = await AsyncStorage.getItem(GUEST_USAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as { date: string; count: number };
+          baseCount = parsed.date === today ? (parsed.count || 0) : 0;
+        }
+      } catch {
+        baseCount = searchCount;
+      }
+      const newCount = baseCount + 1;
       try {
         await AsyncStorage.setItem(
           GUEST_USAGE_KEY,
@@ -449,6 +504,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch {
         /* ignore storage errors */
       }
+      // Mark loaded so the async initial-load useEffect can't clobber us.
+      guestUsageLoadedRef.current = true;
       setSearchCount(newCount);
       return;
     }
@@ -495,6 +552,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             username: u.user_metadata?.username || u.user_metadata?.full_name,
           };
           setCurrentUser(authUser);
+          try {
+            setUserContext({ id: authUser.id, email: authUser.email });
+          } catch {
+            /* ignore Sentry tagging errors */
+          }
           return authUser;
         }
       } catch {
@@ -505,6 +567,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setCurrentUser(null);
+    try {
+      setUserContext(null);
+    } catch {
+      /* ignore Sentry tagging errors */
+    }
     return null;
   }, []);
 
@@ -523,10 +590,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setIsSubscribed(false);
       setSubscriptionEnd(null);
       setSubscriptionSource(null);
+      try {
+        setUserContext(null);
+      } catch {
+        /* ignore Sentry tagging errors */
+      }
       if (error) return { error: error.message };
       return { error: null };
     } catch (e) {
       setCurrentUser(null);
+      try {
+        setUserContext(null);
+      } catch {
+        /* ignore Sentry tagging errors */
+      }
       return {
         error: e instanceof Error ? e.message : 'Sign out failed',
       };

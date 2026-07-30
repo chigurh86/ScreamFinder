@@ -41,6 +41,7 @@ export default function ProfileScreen() {
   const {
     savedMovies,
     remainingSearches,
+    favoritesRemaining,
     searchHistory,
     isSubscribed,
     subscriptionEnd,
@@ -464,10 +465,10 @@ export default function ProfileScreen() {
           <View style={styles.statCard}>
             <Text style={styles.statValue}>
               {isSubscribed
-                ? String(savedMovies.length)
-                : `${savedMovies.length}/${FREE_FAVORITES_LIMIT}`}
+                ? '\u221E'
+                : `${favoritesRemaining}/${FREE_FAVORITES_LIMIT}`}
             </Text>
-            <Text style={styles.statLabel}>Saved</Text>
+            <Text style={styles.statLabel}>Saves Left</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>

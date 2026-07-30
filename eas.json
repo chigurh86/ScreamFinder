@@ -17,6 +17,13 @@
         "buildConfiguration": "Release"
       }
     },
+    "simulator": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Release"
+      }
+    },
     "production": {
       "ios": {
         "buildConfiguration": "Release",

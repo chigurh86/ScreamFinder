@@ -12,17 +12,35 @@ import { suppressBenignAuthErrors } from '../services/authRecoveryService';
 import { theme } from '../constants/theme';
 import * as SplashScreen from 'expo-splash-screen';
 
-SplashScreen.preventAutoHideAsync();
+// Every module-load-time side-effect below is wrapped in try/catch so that
+// a synchronous exception in any of them cannot escalate to React Native's
+// RCTFatal path (which shows up as an EXC_CRASH/SIGABRT on Thread 13
+// `com.facebook.react.ExceptionsManagerQueue` in App Store crash logs).
+// The ErrorBoundary below only catches React render errors — it cannot
+// rescue anything that throws at import time.
+try {
+  SplashScreen.preventAutoHideAsync();
+} catch {
+  /* preventAutoHideAsync can reject on some hosts; splash will still show. */
+}
 
 // Silence known-benign Supabase auth errors (e.g. an expired refresh
 // token surfaced as "Invalid Refresh Token: Refresh Token Not Found").
 // Must run before AuthProvider mounts so the initial session recovery
 // error is intercepted.
-suppressBenignAuthErrors();
+try {
+  suppressBenignAuthErrors();
+} catch (e) {
+  if (__DEV__) console.warn('[boot] suppressBenignAuthErrors failed', e);
+}
 
 // Initialize Sentry as early as possible so it can capture even module-load
 // errors. Safe no-op if EXPO_PUBLIC_SENTRY_DSN is not configured.
-initErrorReporting();
+try {
+  initErrorReporting();
+} catch (e) {
+  if (__DEV__) console.warn('[boot] initErrorReporting failed', e);
+}
 
 export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);

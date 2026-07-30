@@ -1,9 +1,15 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Dimensions } from 'react-native';
+import { View, StyleSheet, Animated } from 'react-native';
 import { Image } from 'expo-image';
 import { theme } from '../../constants/theme';
 
-const { width, height } = Dimensions.get('window');
+// NOTE: `Dimensions.get('window')` intentionally NOT called at module
+// scope. On iPad running an iPhone-only app in compatibility mode, the
+// window dimensions can be zero or the raw physical dimensions before
+// the compatibility-mode frame is applied. Reading them at module load
+// (which happens during the JS boot phase) caused erratic style values
+// on iPad Air 11" (M3). All screens using Dimensions now read them
+// inside the component body / useEffect where the frame is stable.
 
 interface AnimatedSplashProps {
   onFinish: () => void;
