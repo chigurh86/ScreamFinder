@@ -102,10 +102,20 @@ export default function RootLayout() {
                   />
                 </Stack>
                 {showSplash ? (
-                  <AnimatedSplash
-                    onLayout={handleSplashLayout}
-                    onFinish={handleSplashFinish}
-                  />
+                  // Nested ErrorBoundary specifically around the splash.
+                  // If any Animated.timing / Image / layout call throws
+                  // during the very first frame (which is when iPadOS 26
+                  // has historically crashed us), the ErrorBoundary will
+                  // catch it, forward to Sentry, and simply dismiss the
+                  // splash instead of letting the exception bubble up to
+                  // the native RCTFatal path. The rest of the app keeps
+                  // running normally.
+                  <ErrorBoundary>
+                    <AnimatedSplash
+                      onLayout={handleSplashLayout}
+                      onFinish={handleSplashFinish}
+                    />
+                  </ErrorBoundary>
                 ) : null}
               </View>
             </AppProvider>

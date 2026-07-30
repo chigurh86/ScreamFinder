@@ -190,42 +190,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Initialize IAP on iOS and fetch product pricing
+  // Initialize IAP on iOS and fetch product pricing.
+  // Every step is wrapped so an IAP native-module failure (e.g. StoreKit
+  // returning an error on an iPad in compatibility mode, sandbox account
+  // hiccups, or the module simply not being linked in dev builds) can
+  // never propagate as an unhandled promise rejection.
   useEffect(() => {
-    if (isIOSPlatform()) {
-      initializeIAP().then(async (success) => {
+    if (!isIOSPlatform()) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const success = await initializeIAP();
+        if (cancelled) return;
         setIapInitialized(success);
         console.log('[AppContext] IAP initialized:', success);
-        if (success) {
-          try {
-            const products = await getProducts();
-            if (products.length > 0) {
-              const product = products[0];
-              const rawPrice = parseFloat(product.price) || 29.99;
-              const monthlyRaw = rawPrice / 12;
-              // Extract currency symbol from localizedPrice (e.g. "$29.99" -> "$")
-              const symbolMatch = product.localizedPrice.match(/^[^\d]+/);
-              const currencySymbol = symbolMatch ? symbolMatch[0].trim() : '$';
-              // Format monthly equivalent
-              const monthlyFormatted = `${currencySymbol}${monthlyRaw.toFixed(2)}`;
-              setIapPricing({
-                yearlyPrice: product.localizedPrice,
-                monthlyEquivalent: monthlyFormatted,
-                currencySymbol,
-                rawPrice,
-              });
-              console.log('[AppContext] IAP pricing loaded:', product.localizedPrice);
-            }
-          } catch (e) {
-            console.error('[AppContext] Failed to fetch IAP products:', e);
-          }
-        }
-      });
+        if (!success) return;
 
-      return () => {
+        const products = await getProducts();
+        if (cancelled) return;
+        if (products.length > 0) {
+          const product = products[0];
+          const rawPrice = parseFloat(product.price) || 29.99;
+          const monthlyRaw = rawPrice / 12;
+          const symbolMatch = product.localizedPrice.match(/^[^\d]+/);
+          const currencySymbol = symbolMatch ? symbolMatch[0].trim() : '$';
+          const monthlyFormatted = `${currencySymbol}${monthlyRaw.toFixed(2)}`;
+          setIapPricing({
+            yearlyPrice: product.localizedPrice,
+            monthlyEquivalent: monthlyFormatted,
+            currencySymbol,
+            rawPrice,
+          });
+          console.log('[AppContext] IAP pricing loaded:', product.localizedPrice);
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[AppContext] IAP init failed:', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try {
         endIAPConnection();
-      };
-    }
+      } catch {
+        /* ignore */
+      }
+    };
   }, []);
 
   // Load saved movies from AsyncStorage
