@@ -274,7 +274,7 @@ export default function SavedScreen() {
             Favorites limit reached. <Text style={styles.limitBannerLink}>Upgrade to Pro</Text> for unlimited.
           </Text>
         </Pressable>
-      ) : !isSubscribed && savedMovies.length >= FREE_FAVORITES_LIMIT - 2 && savedMovies.length > 0 ? (
+      ) : !isSubscribed && savedMovies.length >= FREE_FAVORITES_LIMIT - 1 && savedMovies.length > 0 ? (
         <View style={styles.warningBanner}>
           <Ionicons name="warning" size={16} color="#F59E0B" />
           <Text style={styles.warningBannerText}>
