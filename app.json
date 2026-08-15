@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "ScreamFinder",
+    "slug": "screamfinder",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/app-store-icon.png",
+    "scheme": "screamfinder",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.freakyattractions.screamfinder",
+      "buildNumber": "14",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "ScreamFinder needs access to your photo library to set a profile picture.",
+        "NSCameraUsageDescription": "ScreamFinder does not use the camera. This description is required because a bundled SDK references the camera API.",
+        "NSContactsUsageDescription": "ScreamFinder does not access your contacts. This description is required because a bundled SDK references the contacts API.",
+        "NSCalendarsUsageDescription": "ScreamFinder does not access your calendar. This description is required because a bundled SDK references the calendar API.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.freakyattractions.screamfinder",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/app-store-icon.png",
+        "backgroundColor": "#0D0D0D"
+      },
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/app-store-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/spooky-eyes.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0A0A0F",
+          "dark": {
+            "image": "./assets/images/spooky-eyes.png",
+            "backgroundColor": "#0A0A0F"
+          }
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
