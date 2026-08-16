@@ -1,6 +1,6 @@
 export const APP_NAME = 'ScreamFinder';
 export const FREE_DAILY_LIMIT = 5;
-export const FREE_FAVORITES_LIMIT = 5;
+export const FREE_FAVORITES_LIMIT = 2;
 
 // Apple IAP Product ID - must match App Store Connect
 export const IAP_PRODUCT_ID = 'com.screamfinder.pro.yearly';
