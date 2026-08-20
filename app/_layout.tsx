@@ -12,38 +12,47 @@ import { suppressBenignAuthErrors } from '../services/authRecoveryService';
 import { theme } from '../constants/theme';
 import * as SplashScreen from 'expo-splash-screen';
 
-// Every module-load-time side-effect below is wrapped in try/catch so that
-// a synchronous exception in any of them cannot escalate to React Native's
-// RCTFatal path (which shows up as an EXC_CRASH/SIGABRT on Thread 13
-// `com.facebook.react.ExceptionsManagerQueue` in App Store crash logs).
-// The ErrorBoundary below only catches React render errors — it cannot
-// rescue anything that throws at import time.
-try {
-  SplashScreen.preventAutoHideAsync();
-} catch {
-  /* preventAutoHideAsync can reject on some hosts; splash will still show. */
-}
+// NOTE: We used to run SplashScreen.preventAutoHideAsync(),
+// suppressBenignAuthErrors(), and initErrorReporting() at MODULE SCOPE
+// (top-level side effects). On iOS 26 real devices, any synchronous
+// exception thrown inside these calls before React mounts is fatal:
+// there is no bridge, no ErrorBoundary, no Sentry — the process is
+// terminated with RCTFatal / EXC_CRASH. We now run all three inside
+// a lazy useEffect in the RootLayout component so they execute AFTER
+// the JS runtime is fully spun up and any throw is contained.
+let bootSideEffectsRun = false;
+function runBootSideEffectsOnce() {
+  if (bootSideEffectsRun) return;
+  bootSideEffectsRun = true;
 
-// Silence known-benign Supabase auth errors (e.g. an expired refresh
-// token surfaced as "Invalid Refresh Token: Refresh Token Not Found").
-// Must run before AuthProvider mounts so the initial session recovery
-// error is intercepted.
-try {
-  suppressBenignAuthErrors();
-} catch (e) {
-  if (__DEV__) console.warn('[boot] suppressBenignAuthErrors failed', e);
-}
+  try {
+    SplashScreen.preventAutoHideAsync();
+  } catch {
+    /* preventAutoHideAsync can reject on some hosts; splash will still show. */
+  }
 
-// Initialize Sentry as early as possible so it can capture even module-load
-// errors. Safe no-op if EXPO_PUBLIC_SENTRY_DSN is not configured.
-try {
-  initErrorReporting();
-} catch (e) {
-  if (__DEV__) console.warn('[boot] initErrorReporting failed', e);
+  try {
+    suppressBenignAuthErrors();
+  } catch (e) {
+    if (__DEV__) console.warn('[boot] suppressBenignAuthErrors failed', e);
+  }
+
+  try {
+    initErrorReporting();
+  } catch (e) {
+    if (__DEV__) console.warn('[boot] initErrorReporting failed', e);
+  }
 }
 
 export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
+
+  // Run boot side effects exactly once, INSIDE the React tree, so any
+  // throw is caught by the outer ErrorBoundary instead of crashing the
+  // native process.
+  useEffect(() => {
+    runBootSideEffectsOnce();
+  }, []);
 
   const handleSplashLayout = useCallback(() => {
     // Only dismiss the native splash once our JS splash has actually

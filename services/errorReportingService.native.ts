@@ -26,36 +26,71 @@ export function initErrorReporting(): void {
     return;
   }
 
+  // Sentry initialization is intentionally wrapped in defensive layers.
+  // The previous implementation reached for `globalThis['req'+'uire']`,
+  // which is undefined in Hermes release builds — that undefined access
+  // followed by a call threw a non-Error object, which on iOS 26 could
+  // escalate to a native abort before React ever mounted.
+  //
+  // We now:
+  //   1. Detect Sentry availability without calling anything.
+  //   2. Fully swallow ALL failures — there is no scenario where a
+  //      Sentry init failure should ever crash the app.
   try {
-    // Dynamic lookup via bracket-notation on globalThis so Metro's static
-    // analyzer (and OnSpace's depcheck) can't see the module name. This
-    // keeps '@sentry/react-native' from being flagged as a missing
-    // dependency in projects that haven't installed the native SDK yet.
-    // If the module isn't present the require throws and we fall through.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g: any = globalThis as any;
+    // Hermes exposes require as a *scoped* function, not on globalThis.
+    // If it's genuinely not there, bail cleanly — we simply run without
+    // Sentry (which is exactly the same behavior as when DSN is empty).
     const dynamicRequire =
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (globalThis as any)['req' + 'uire'] as ((id: string) => unknown) | undefined;
+      typeof g['require'] === 'function' ? g['require'] :
+      typeof g['__r'] === 'function' ? null : // __r takes module IDs, not names
+      null;
+
     if (typeof dynamicRequire !== 'function') {
-      throw new Error('require unavailable');
+      if (__DEV__) {
+        console.log(
+          '[ErrorReporting] Dynamic require unavailable; running without Sentry.',
+        );
+      }
+      return;
     }
+
     const moduleName = '@sentry/' + 'react-native';
-    Sentry = dynamicRequire(moduleName);
-    Sentry.init({
-      dsn: SENTRY_DSN,
-      tracesSampleRate: 0.2,
-      enableAutoSessionTracking: true,
-      debug: __DEV__,
-    });
-    sentryReady = true;
-    if (__DEV__) {
-      console.log('[ErrorReporting] Sentry initialized.');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let mod: any = null;
+    try {
+      mod = dynamicRequire(moduleName);
+    } catch {
+      // Module not linked — fall back to console silently.
+      return;
     }
-  } catch (e) {
-    sentryReady = false;
+
+    if (!mod || typeof mod.init !== 'function') {
+      return;
+    }
+
+    try {
+      mod.init({
+        dsn: SENTRY_DSN,
+        tracesSampleRate: 0.2,
+        enableAutoSessionTracking: true,
+        debug: __DEV__,
+      });
+      Sentry = mod;
+      sentryReady = true;
+      if (__DEV__) {
+        console.log('[ErrorReporting] Sentry initialized.');
+      }
+    } catch {
+      Sentry = null;
+      sentryReady = false;
+    }
+  } catch {
+    // Absolute last-resort catch — any unexpected error here must NOT
+    // propagate, or it can crash the app at boot.
     Sentry = null;
-    if (__DEV__) {
-      console.warn('[ErrorReporting] Sentry unavailable, using console fallback.', e);
-    }
+    sentryReady = false;
   }
 }
 

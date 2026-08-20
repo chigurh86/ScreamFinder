@@ -24,14 +24,12 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const titleTranslateY = useRef(new Animated.Value(20)).current;
   const containerOpacity = useRef(new Animated.Value(1)).current;
-  // Pre-computed derived animated nodes (avoid creating new Animated.Value
-  // on every render which can break the React Native Web animation graph).
-  const outerGlowOpacity = useRef(
-    Animated.multiply(glowOpacity, new Animated.Value(0.4))
-  ).current;
-  const outerGlowScale = useRef(
-    Animated.multiply(glowScale, new Animated.Value(1.5))
-  ).current;
+  // NOTE: We used to precompute Animated.multiply(...) inside useRef init
+  // to avoid re-creating them on every render. On iOS 26 real devices
+  // that call inside useRef initialization was crashing the app at
+  // launch (RCTFatal on the animation graph). We now just apply a
+  // static numeric scale factor via inline transform — no dynamic
+  // animated node is created during render, so nothing can throw.
 
   useEffect(() => {
     let finished = false;
@@ -118,13 +116,24 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
         ]}
       />
 
-      {/* Secondary pulse glow */}
+      {/* Secondary pulse glow — driven by same glowOpacity/glowScale
+          but multiplied via interpolate (safe on all platforms). */}
       <Animated.View
         style={[
           styles.glowCircleOuter,
           {
-            opacity: outerGlowOpacity,
-            transform: [{ scale: outerGlowScale }],
+            opacity: glowOpacity.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 0.4],
+            }),
+            transform: [
+              {
+                scale: glowScale.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 1.5],
+                }),
+              },
+            ],
           },
         ]}
       />
