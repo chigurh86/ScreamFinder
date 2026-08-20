@@ -232,3 +232,17 @@ export function installGlobalErrorHandlers(): void {
     if (__DEV__) console.warn('[GlobalErrorHandler] rejection hook failed', e);
   }
 }
+
+// Auto-install at module load. Fully guarded; cannot throw. When this
+// file is imported as a side-effect at the very top of app/_layout.tsx,
+// the handler installs BEFORE any other module in the import graph
+// finishes evaluating — so errors thrown during module init of
+// AppContext, expo-router, template auth, or any third-party module
+// are intercepted and downgraded to non-fatal before RN's RCTFatal path
+// can abort() the process.
+try {
+  installGlobalErrorHandlers();
+} catch {
+  /* installGlobalErrorHandlers is designed to never throw —
+     the outer try/catch is belt-and-suspenders. */
+}

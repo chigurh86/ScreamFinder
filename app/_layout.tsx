@@ -1,3 +1,13 @@
+// CRITICAL: this MUST be the very first import of this file. The
+// globalErrorHandler module installs a global JS error handler as a
+// module-load side effect, before any other module in the import graph
+// finishes evaluating. That means any subsequent JS throw — including
+// errors during module init of expo-router, template auth, AppContext,
+// or any third-party module — is intercepted and downgraded to
+// non-fatal, preventing RN's RCTFatal → abort() on the
+// ExceptionsManagerQueue (the exact crash signature we saw in Build 18).
+import '../services/globalErrorHandler';
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
@@ -8,23 +18,9 @@ import { AppProvider } from '../contexts/AppContext';
 import { AnimatedSplash } from '../components/feature/AnimatedSplash';
 import { ErrorBoundary } from '../components/feature/ErrorBoundary';
 import { initErrorReporting } from '../services/errorReportingService';
-import { installGlobalErrorHandlers } from '../services/globalErrorHandler';
 import { suppressBenignAuthErrors } from '../services/authRecoveryService';
 import { theme } from '../constants/theme';
 import * as SplashScreen from 'expo-splash-screen';
-
-// Install the global JS error handler at MODULE SCOPE — before any
-// other JS runs. `installGlobalErrorHandlers` is fully guarded and
-// cannot throw, so it's safe to run before React mounts. This is the
-// critical fix for the Build 18 crash: any subsequent uncaught JS
-// error is downgraded to non-fatal instead of triggering RCTFatal →
-// abort() on the ExceptionsManagerQueue.
-try {
-  installGlobalErrorHandlers();
-} catch {
-  /* installGlobalErrorHandlers is designed to never throw —
-     the outer try/catch is belt-and-suspenders. */
-}
 
 // NOTE: We used to run SplashScreen.preventAutoHideAsync(),
 // suppressBenignAuthErrors(), and initErrorReporting() at MODULE SCOPE
