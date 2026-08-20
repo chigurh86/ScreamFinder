@@ -8,9 +8,23 @@ import { AppProvider } from '../contexts/AppContext';
 import { AnimatedSplash } from '../components/feature/AnimatedSplash';
 import { ErrorBoundary } from '../components/feature/ErrorBoundary';
 import { initErrorReporting } from '../services/errorReportingService';
+import { installGlobalErrorHandlers } from '../services/globalErrorHandler';
 import { suppressBenignAuthErrors } from '../services/authRecoveryService';
 import { theme } from '../constants/theme';
 import * as SplashScreen from 'expo-splash-screen';
+
+// Install the global JS error handler at MODULE SCOPE — before any
+// other JS runs. `installGlobalErrorHandlers` is fully guarded and
+// cannot throw, so it's safe to run before React mounts. This is the
+// critical fix for the Build 18 crash: any subsequent uncaught JS
+// error is downgraded to non-fatal instead of triggering RCTFatal →
+// abort() on the ExceptionsManagerQueue.
+try {
+  installGlobalErrorHandlers();
+} catch {
+  /* installGlobalErrorHandlers is designed to never throw —
+     the outer try/catch is belt-and-suspenders. */
+}
 
 // NOTE: We used to run SplashScreen.preventAutoHideAsync(),
 // suppressBenignAuthErrors(), and initErrorReporting() at MODULE SCOPE
@@ -24,6 +38,10 @@ let bootSideEffectsRun = false;
 function runBootSideEffectsOnce() {
   if (bootSideEffectsRun) return;
   bootSideEffectsRun = true;
+
+  // Global error handler was already installed at module scope; no
+  // need to re-install here. Everything below runs in the useEffect
+  // now-that-React-has-mounted phase.
 
   try {
     SplashScreen.preventAutoHideAsync();
