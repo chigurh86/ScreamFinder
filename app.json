@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.freakyattractions.screamfinder",
-      "buildNumber": "14",
+      "buildNumber": "18",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "ScreamFinder needs access to your photo library to set a profile picture.",
         "NSCameraUsageDescription": "ScreamFinder does not use the camera. This description is required because a bundled SDK references the camera API.",
@@ -53,6 +53,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "87cd61b4-7294-4277-a43a-8aa0fb5e01d2"
+      }
     }
   }
 }
