@@ -274,7 +274,7 @@ export default function MovieDetailScreen() {
             </View>
             <View style={styles.streamingGrid}>
               {movie.streamingOn.map((platform) => (
-                <Pressable
+                <View
                   key={platform}
                   style={[
                     styles.streamingCard,
@@ -292,7 +292,7 @@ export default function MovieDetailScreen() {
                     }
                   />
                   <Text style={styles.streamingName}>{platform}</Text>
-                </Pressable>
+                </View>
               ))}
             </View>
           </Animated.View>
