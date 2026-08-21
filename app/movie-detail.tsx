@@ -292,11 +292,6 @@ export default function MovieDetailScreen() {
                     }
                   />
                   <Text style={styles.streamingName}>{platform}</Text>
-                  <Ionicons
-                    name="open-outline"
-                    size={14}
-                    color={theme.textMuted}
-                  />
                 </Pressable>
               ))}
             </View>
