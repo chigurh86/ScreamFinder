@@ -7,6 +7,42 @@ const logStep = (step: string, details?: any) => {
   console.log(`[CHECK-SUBSCRIPTION] ${step}${d}`);
 };
 
+/**
+ * Given the current authenticated Supabase user, find the Stripe customer
+ * that is *provably* linked to THIS user via customer.metadata.supabase_user_id.
+ *
+ * We intentionally do NOT fall back to a naive email match — otherwise a fresh
+ * signup that happens to reuse an email from a prior test/live account would
+ * inherit that older Stripe customer's active subscription and get Pro for
+ * free (this was the bug the user reported: brand-new account, unlimited).
+ */
+async function findLinkedStripeCustomer(
+  stripe: Stripe,
+  userId: string,
+  email: string,
+): Promise<Stripe.Customer | null> {
+  // Preferred path: Stripe search API (supports metadata queries directly).
+  try {
+    const q = `metadata['supabase_user_id']:'${userId}'`;
+    const result = await stripe.customers.search({ query: q, limit: 1 });
+    if (result.data.length > 0) return result.data[0];
+  } catch (e) {
+    logStep('Stripe search API failed, falling back to email-list scan', {
+      err: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  // Fallback: list up to 100 customers with this email and pick the one whose
+  // metadata links to this Supabase user. Same-email customers without a
+  // matching metadata tag are treated as belonging to *someone else* and
+  // ignored, which is exactly what prevents subscription inheritance.
+  const customers = await stripe.customers.list({ email, limit: 100 });
+  for (const c of customers.data) {
+    if (c.metadata?.supabase_user_id === userId) return c;
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -17,7 +53,6 @@ Deno.serve(async (req) => {
 
     const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
     if (!stripeKey) throw new Error('STRIPE_SECRET_KEY not set');
-    logStep('Stripe key verified');
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -46,8 +81,12 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (appleSub) {
+      // Only treat as active when we have an explicit expires_date in the
+      // future. A NULL expires_date used to be treated as "still active"
+      // which meant any junk / partially-inserted row would grant Pro
+      // access indefinitely. We now require a concrete future expiry.
       const expiresDate = appleSub.expires_date ? new Date(appleSub.expires_date) : null;
-      const isStillActive = !expiresDate || expiresDate > new Date();
+      const isStillActive = expiresDate ? expiresDate > new Date() : false;
 
       if (isStillActive) {
         logStep('Active Apple IAP subscription found', {
@@ -64,32 +103,32 @@ Deno.serve(async (req) => {
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
         );
       } else {
-        // Mark expired Apple sub as inactive
+        // Mark expired / malformed Apple sub as inactive so it stops
+        // showing up in future queries.
         await supabaseClient
           .from('apple_subscriptions')
           .update({ is_active: false, updated_at: new Date().toISOString() })
           .eq('id', appleSub.id);
-        logStep('Apple subscription expired, marked inactive');
+        logStep('Apple subscription expired or missing expires_date; marked inactive');
       }
     }
 
-    // --- Check Stripe subscription ---
+    // --- Check Stripe subscription (metadata-linked only) ---
     const stripe = new Stripe(stripeKey);
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+    const linkedCustomer = await findLinkedStripeCustomer(stripe, user.id, user.email);
 
-    if (customers.data.length === 0) {
-      logStep('No Stripe customer found');
+    if (!linkedCustomer) {
+      logStep('No Stripe customer linked to this Supabase user');
       return new Response(
         JSON.stringify({ subscribed: false, product_id: null, subscription_end: null, source: null }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
       );
     }
 
-    const customerId = customers.data[0].id;
-    logStep('Stripe customer found', { customerId });
+    logStep('Linked Stripe customer found', { customerId: linkedCustomer.id });
 
     const subscriptions = await stripe.subscriptions.list({
-      customer: customerId,
+      customer: linkedCustomer.id,
       status: 'active',
       limit: 1,
     });
@@ -100,19 +139,13 @@ Deno.serve(async (req) => {
 
     if (hasActiveSub) {
       const sub = subscriptions.data[0];
-      logStep('Raw subscription data', {
-        subscriptionId: sub.id,
-        current_period_end: sub.current_period_end,
-        status: sub.status,
-      });
-
       if (sub.current_period_end && typeof sub.current_period_end === 'number') {
         subscriptionEnd = new Date(sub.current_period_end * 1000).toISOString();
       }
       productId = sub.items?.data?.[0]?.price?.product as string ?? null;
       logStep('Active subscription found', { subscriptionId: sub.id, endDate: subscriptionEnd, productId });
     } else {
-      logStep('No active subscription');
+      logStep('No active subscription for linked customer');
     }
 
     return new Response(
