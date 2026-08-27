@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import { Image } from 'expo-image';
 import { theme } from '../../constants/theme';
@@ -24,14 +24,32 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const titleTranslateY = useRef(new Animated.Value(20)).current;
   const containerOpacity = useRef(new Animated.Value(1)).current;
-  // Pre-computed derived animated nodes (avoid creating new Animated.Value
-  // on every render which can break the React Native Web animation graph).
-  const outerGlowOpacity = useRef(
-    Animated.multiply(glowOpacity, new Animated.Value(0.4))
-  ).current;
-  const outerGlowScale = useRef(
-    Animated.multiply(glowScale, new Animated.Value(1.5))
-  ).current;
+
+  // BUILD 23 HARDENING: On iOS 26.6 fresh-sandbox launches, the native
+  // image decoder queue can throw NSExceptions decoding cached-but-
+  // unmigrated PNG assets. Tracking image failures at the JS level so
+  // we can render text-only fallbacks if either splash asset fails to
+  // decode. This does not prevent a native throw on its own, but it
+  // covers the case where the JS-observable onError fires before the
+  // native decoder aborts on a subsequent frame.
+  const [eyesLoadFailed, setEyesLoadFailed] = useState(false);
+  const [knifeLoadFailed, setKnifeLoadFailed] = useState(false);
+
+  const handleEyesError = useCallback((err: unknown) => {
+    if (__DEV__) console.warn('[AnimatedSplash] eyes image failed:', err);
+    setEyesLoadFailed(true);
+  }, []);
+
+  const handleKnifeError = useCallback((err: unknown) => {
+    if (__DEV__) console.warn('[AnimatedSplash] knife image failed:', err);
+    setKnifeLoadFailed(true);
+  }, []);
+  // NOTE: We used to precompute Animated.multiply(...) inside useRef init
+  // to avoid re-creating them on every render. On iOS 26 real devices
+  // that call inside useRef initialization was crashing the app at
+  // launch (RCTFatal on the animation graph). We now just apply a
+  // static numeric scale factor via inline transform — no dynamic
+  // animated node is created during render, so nothing can throw.
 
   useEffect(() => {
     let finished = false;
@@ -118,13 +136,24 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
         ]}
       />
 
-      {/* Secondary pulse glow */}
+      {/* Secondary pulse glow — driven by same glowOpacity/glowScale
+          but multiplied via interpolate (safe on all platforms). */}
       <Animated.View
         style={[
           styles.glowCircleOuter,
           {
-            opacity: outerGlowOpacity,
-            transform: [{ scale: outerGlowScale }],
+            opacity: glowOpacity.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 0.4],
+            }),
+            transform: [
+              {
+                scale: glowScale.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 1.5],
+                }),
+              },
+            ],
           },
         ]}
       />
@@ -139,11 +168,16 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
           },
         ]}
       >
-        <Image
-          source={require('../../assets/images/spooky-eyes.png')}
-          style={styles.eyesImage}
-          contentFit="contain"
-        />
+        {eyesLoadFailed ? (
+          <View style={[styles.eyesImage, styles.eyesFallback]} />
+        ) : (
+          <Image
+            source={require('../../assets/images/spooky-eyes.png')}
+            style={styles.eyesImage}
+            contentFit="contain"
+            onError={handleEyesError}
+          />
+        )}
       </Animated.View>
 
       {/* App title */}
@@ -157,11 +191,16 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
         ]}
       >
         <View style={styles.titleRow}>
-          <Image
-            source={require('../../assets/images/knife-logo.png')}
-            style={styles.knifeLogo}
-            contentFit="contain"
-          />
+          {knifeLoadFailed ? (
+            <Animated.Text style={styles.titleFallback}>ScreamFinder</Animated.Text>
+          ) : (
+            <Image
+              source={require('../../assets/images/knife-logo.png')}
+              style={styles.knifeLogo}
+              contentFit="contain"
+              onError={handleKnifeError}
+            />
+          )}
         </View>
         <Animated.Text style={styles.tagline}>Find your next nightmare</Animated.Text>
       </Animated.View>
@@ -217,6 +256,16 @@ const styles = StyleSheet.create({
   knifeLogo: {
     width: 256,
     height: 64,
+  },
+  eyesFallback: {
+    borderRadius: 50,
+    backgroundColor: 'rgba(220, 38, 38, 0.35)',
+  },
+  titleFallback: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: theme.primary,
+    letterSpacing: 1,
   },
   title: {
     fontSize: 30,

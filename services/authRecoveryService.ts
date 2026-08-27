@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeStorage } from './safeStorage';
 import { getSupabaseClient } from '@/template';
 
 /**
@@ -108,12 +108,12 @@ export async function clearStaleAuthTokens(): Promise<void> {
         }
       });
     } else {
-      const keys = await AsyncStorage.getAllKeys();
+      const keys = await safeStorage.getAllKeys();
       const authKeys = keys.filter(
         (k) => k.startsWith('sb-') && k.includes('-auth-token')
       );
       if (authKeys.length > 0) {
-        await AsyncStorage.multiRemove(authKeys);
+        await safeStorage.multiRemove(authKeys);
       }
     }
   } catch {

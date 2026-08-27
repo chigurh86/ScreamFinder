@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeStorage } from './safeStorage';
 import { getSupabaseClient } from '@/template';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 
@@ -18,7 +18,7 @@ let providerCacheLoaded = false;
 async function loadPosterCache(): Promise<void> {
   if (posterCacheLoaded) return;
   try {
-    const data = await AsyncStorage.getItem(CACHE_KEY);
+    const data = await safeStorage.getItem(CACHE_KEY);
     if (data) {
       posterCache = JSON.parse(data);
       const now = Date.now();
@@ -37,7 +37,7 @@ async function loadPosterCache(): Promise<void> {
 async function loadProviderCache(): Promise<void> {
   if (providerCacheLoaded) return;
   try {
-    const data = await AsyncStorage.getItem(PROVIDER_CACHE_KEY);
+    const data = await safeStorage.getItem(PROVIDER_CACHE_KEY);
     if (data) {
       providerCache = JSON.parse(data);
       const now = Date.now();
@@ -54,8 +54,10 @@ async function loadProviderCache(): Promise<void> {
 }
 
 async function savePosterCache(): Promise<void> {
+  // safeStorage.setItem already never throws; explicit try/catch retained
+  // for defense-in-depth in case JSON.stringify chokes on unusual data.
   try {
-    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(posterCache));
+    await safeStorage.setItem(CACHE_KEY, JSON.stringify(posterCache));
   } catch {
     // Silently fail
   }
@@ -63,7 +65,7 @@ async function savePosterCache(): Promise<void> {
 
 async function saveProviderCache(): Promise<void> {
   try {
-    await AsyncStorage.setItem(PROVIDER_CACHE_KEY, JSON.stringify(providerCache));
+    await safeStorage.setItem(PROVIDER_CACHE_KEY, JSON.stringify(providerCache));
   } catch {
     // Silently fail
   }

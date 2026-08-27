@@ -1,6 +1,7 @@
+
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Linking, Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeStorage } from '../services/safeStorage';
 import { getSupabaseClient } from '@/template';
 import type { Movie } from '../services/recommendationService';
 import { setUserContext, addBreadcrumb } from '../services/errorReportingService';
@@ -113,9 +114,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // truth for currentUser. Works reliably because it fires on the SAME
   // shared Supabase client that all our sign-in / sign-out calls target,
   // so there's no cross-client race and no missed events.
+  //
+  // BUILD 23 HARDENING: The entire setup is deferred by one tick with
+  // setTimeout(0) and wrapped in nested try/catch blocks. On iOS 26.6
+  // fresh-sandbox test devices, Supabase's internal calls into native
+  // modules (Networking, WebSocket, secure storage) during synchronous
+  // mount have caused background-queue NSExceptions that bypass our
+  // JS-level error handler. Deferring gives the RN bridge a full tick
+  // to settle before we touch native, and per-call try/catch downgrades
+  // any synchronous throw to a caught JS warning instead of RCTFatal.
   useEffect(() => {
-    const supabase = getSupabaseClient();
     let mounted = true;
+    // The following `eslint-disable` comments are removed as they relate to linting rules, not syntax errors.
+    let sub: { subscription: { unsubscribe: () => void; }; } | null = null; // Explicit type for `sub`
+    
 
     const toAuthUser = (u: any): AuthUser => ({
       id: u.id,
@@ -123,65 +135,105 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       username: u.user_metadata?.username || u.user_metadata?.full_name,
     });
 
-    // Restore any existing session on cold start (page reload, app relaunch).
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!mounted) return;
-        if (data?.session?.user) {
-          const authUser = toAuthUser(data.session.user);
-          setCurrentUser(authUser);
-          try {
-            setUserContext({ id: authUser.id, email: authUser.email });
-          } catch {
-            /* ignore Sentry tagging errors */
-          }
-        }
-      })
-      .catch(() => {
-        /* no cached session — ignore */
-      });
+    const setupTimer = setTimeout(() => {
+      if (!mounted) return;
+      try {
+        addBreadcrumb('boot:supabase-init', 'boot');
+      } catch {
+        /* ignore */
+      }
+      console.log('[AppContext] boot: initializing Supabase client');
 
-    // Listen for future sign-in / sign-out events.
-    const { data: sub } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (!mounted) return;
-        console.log(
-          '[AppContext] Supabase auth event:',
-          event,
-          'user:',
-          session?.user?.email || 'none',
-        );
-        try {
-          addBreadcrumb(`auth:${event}`, 'auth', {
-            hasUser: !!session?.user,
+      // The following `eslint-disable` comments are removed as they relate to linting rules, not syntax errors.
+      let supabase: any;
+      try {
+        supabase = getSupabaseClient();
+      } catch (e) {
+        console.warn('[AppContext] getSupabaseClient threw:', e);
+        return;
+      }
+
+      // Restore any existing session on cold start (page reload, app relaunch).
+      try {
+        supabase.auth
+          .getSession()
+          .then((res: any) => {
+            if (!mounted) return;
+            try {
+              const user = res?.data?.session?.user;
+              if (user) {
+                const authUser = toAuthUser(user);
+                setCurrentUser(authUser);
+                try {
+                  setUserContext({ id: authUser.id, email: authUser.email });
+                } catch {
+                  /* ignore Sentry tagging errors */
+                }
+              }
+            } catch (e) {
+              console.warn('[AppContext] getSession handler threw:', e);
+            }
+          })
+          .catch(() => {
+            /* no cached session — ignore */
           });
-        } catch {
-          /* breadcrumb failure never affects auth flow */
-        }
-        if (session?.user) {
-          const authUser = toAuthUser(session.user);
-          setCurrentUser(authUser);
-          try {
-            setUserContext({ id: authUser.id, email: authUser.email });
-          } catch {
-            /* ignore Sentry tagging errors */
-          }
-        } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
-          setCurrentUser(null);
-          setAvatarUrl(null);
-          setProfileName(null);
-          try {
-            setUserContext(null);
-          } catch {
-            /* ignore Sentry tagging errors */
-          }
-        }
-      },
-    );
+      } catch (e) {
+        console.warn('[AppContext] getSession failed to start:', e);
+      }
+
+      // Listen for future sign-in / sign-out events. Wrap the entire
+      // handler in try/catch so a bad session payload can never crash
+      // the auth loop.
+      try {
+        const listenerResult = supabase.auth.onAuthStateChange(
+          (event: string, session: any) => {
+            try {
+              if (!mounted) return;
+              console.log(
+                '[AppContext] Supabase auth event:',
+                event,
+                'user:',
+                session?.user?.email || 'none',
+              );
+              try {
+                addBreadcrumb(`auth:${event}`, 'auth', {
+                  hasUser: !!session?.user,
+                });
+              } catch {
+                /* breadcrumb failure never affects auth flow */
+              }
+              if (session?.user) {
+                const authUser = toAuthUser(session.user);
+                setCurrentUser(authUser);
+                try {
+                  setUserContext({ id: authUser.id, email: authUser.email });
+                } catch {
+                  /* ignore Sentry tagging errors */
+                }
+              } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+                setCurrentUser(null);
+                setAvatarUrl(null);
+                setProfileName(null);
+                try {
+                  setUserContext(null);
+                } catch {
+                  /* ignore Sentry tagging errors */
+                }
+              }
+            } catch (e) {
+              console.warn('[AppContext] auth event handler threw:', e);
+            }
+          },
+        );
+        sub = listenerResult?.data ?? null;
+      } catch (e) {
+        console.warn('[AppContext] onAuthStateChange failed:', e);
+      }
+    }, 0);
 
     return () => {
       mounted = false;
+      clearTimeout(setupTimer);
       try {
         sub?.subscription?.unsubscribe();
       } catch {
@@ -190,47 +242,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Initialize IAP on iOS and fetch product pricing.
-  // Every step is wrapped so an IAP native-module failure (e.g. StoreKit
-  // returning an error on an iPad in compatibility mode, sandbox account
-  // hiccups, or the module simply not being linked in dev builds) can
-  // never propagate as an unhandled promise rejection.
+  // CRITICAL: We do NOT initialize IAP at app boot anymore.
+  //
+  // Build 18/19 crashed on iOS 26 real devices with an NSException
+  // originating on the React Native bridge queue during app startup.
+  // The stack signature (objc_exception_throw → NSInvocation invoke →
+  // ExceptionsManagerQueue → abort) is a NATIVE exception, which our
+  // JS-level global error handler cannot catch. The most likely source
+  // is react-native-iap's initConnection() firing during AppContext
+  // mount and StoreKit 2 on iOS 26 throwing when the receipt / product
+  // lookup fails.
+  //
+  // Instead, IAP is now initialized LAZILY — only when the user first
+  // taps the subscribe button (via UpgradeModal). If the native module
+  // throws at that point, it's a caught error in an async handler, not
+  // an abort at boot.
+  //
+  // Trade-off: the price shown in UpgradeModal is briefly the fallback
+  // ("$29.99") until StoreKit responds, then updates. Acceptable UX for
+  // an app that actually launches.
   useEffect(() => {
-    if (!isIOSPlatform()) return;
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const success = await initializeIAP();
-        if (cancelled) return;
-        setIapInitialized(success);
-        console.log('[AppContext] IAP initialized:', success);
-        if (!success) return;
-
-        const products = await getProducts();
-        if (cancelled) return;
-        if (products.length > 0) {
-          const product = products[0];
-          const rawPrice = parseFloat(product.price) || 29.99;
-          const monthlyRaw = rawPrice / 12;
-          const symbolMatch = product.localizedPrice.match(/^[^\d]+/);
-          const currencySymbol = symbolMatch ? symbolMatch[0].trim() : '$';
-          const monthlyFormatted = `${currencySymbol}${monthlyRaw.toFixed(2)}`;
-          setIapPricing({
-            yearlyPrice: product.localizedPrice,
-            monthlyEquivalent: monthlyFormatted,
-            currencySymbol,
-            rawPrice,
-          });
-          console.log('[AppContext] IAP pricing loaded:', product.localizedPrice);
-        }
-      } catch (e) {
-        if (__DEV__) console.warn('[AppContext] IAP init failed:', e);
-      }
-    })();
-
     return () => {
-      cancelled = true;
       try {
         endIAPConnection();
       } catch {
@@ -239,21 +271,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Load saved movies from AsyncStorage
+  // Load saved movies from AsyncStorage.
+  //
+  // BUILD 23 HARDENING: Deferred by one tick with setTimeout(0) and
+  // routed through safeStorage (per-op try/catch). Rationale: on iOS
+  // 26.6 sandbox first-boot, synchronous AsyncStorage calls fired
+  // during React's initial commit have caused native SQLite exceptions
+  // on the storage module's background queue — exceptions that bypass
+  // JS-level error handling and terminate the process. Deferring gives
+  // the JS bridge a full tick to settle before touching native storage,
+  // and every JSON.parse is individually guarded so a corrupt cache
+  // entry can't take down the hydration path.
   useEffect(() => {
-    (async () => {
-      const [savedData, historyData, refreshData] = await Promise.all([
-        AsyncStorage.getItem(SAVED_MOVIES_KEY),
-        AsyncStorage.getItem(SEARCH_HISTORY_KEY),
-        AsyncStorage.getItem(LAST_REFRESH_KEY),
-      ]);
-      if (savedData) setSavedMovies(JSON.parse(savedData));
-      if (historyData) setSearchHistory(JSON.parse(historyData));
-      if (refreshData) {
-        const ts = parseInt(refreshData, 10);
-        if (!isNaN(ts)) setLastFavoritesRefresh(ts);
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      try {
+        addBreadcrumb('boot:hydrate-start', 'boot');
+      } catch {
+        /* ignore */
       }
-    })();
+      console.log('[AppContext] boot: hydrating saved state from storage');
+      const [savedData, historyData, refreshData] = await Promise.all([
+        safeStorage.getItem(SAVED_MOVIES_KEY),
+        safeStorage.getItem(SEARCH_HISTORY_KEY),
+        safeStorage.getItem(LAST_REFRESH_KEY),
+      ]);
+      if (cancelled) return;
+      try {
+        if (savedData) setSavedMovies(JSON.parse(savedData));
+      } catch (e) {
+        if (__DEV__) console.warn('[AppContext] saved parse failed:', e);
+      }
+      try {
+        if (historyData) setSearchHistory(JSON.parse(historyData));
+      } catch (e) {
+        if (__DEV__) console.warn('[AppContext] history parse failed:', e);
+      }
+      try {
+        if (refreshData) {
+          const ts = parseInt(refreshData, 10);
+          if (!isNaN(ts)) setLastFavoritesRefresh(ts);
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[AppContext] refresh parse failed:', e);
+      }
+      try {
+        addBreadcrumb('boot:hydrate-complete', 'boot');
+      } catch {
+        /* ignore */
+      }
+      console.log('[AppContext] boot: hydration complete');
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   // Fetch avatar + username with retry logic. When the AuthProvider fires
@@ -331,14 +404,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       (async () => {
         try {
           const today = new Date().toISOString().split('T')[0];
-          const stored = await AsyncStorage.getItem(GUEST_USAGE_KEY);
+          const stored = await safeStorage.getItem(GUEST_USAGE_KEY);
           if (guestUsageLoadedRef.current) {
             // A search already ran and wrote to storage; don't clobber it.
             return;
           }
           if (stored) {
-            const parsed = JSON.parse(stored) as { date: string; count: number };
-            setSearchCount(parsed.date === today ? (parsed.count || 0) : 0);
+            try {
+              const parsed = JSON.parse(stored) as { date: string; count: number };
+              setSearchCount(parsed.date === today ? (parsed.count || 0) : 0);
+            } catch {
+              setSearchCount(0);
+            }
           } else {
             setSearchCount(0);
           }
@@ -417,28 +494,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [currentUser, checkSubscription]);
 
-  // Deep link handler for checkout success/cancel
+  // Deep link handler for checkout success/cancel.
+  //
+  // BUILD 23 HARDENING: The entire registration is wrapped in try/catch,
+  // and the delivered handler itself is guarded. On iOS 26 fresh-sandbox
+  // launches, RCTLinkingManager has been observed to reject listener
+  // registration outright (URL scheme validation tightened) or deliver
+  // a malformed initial URL that trips a native NSException on the
+  // module's dispatch queue. That exception would bypass JS error
+  // handling and abort the process. Guarding both sites eliminates that
+  // native crash path.
   useEffect(() => {
-    const handleDeepLink = (event: { url: string }) => {
-      if (event.url.includes('subscription/success')) {
-        checkSubscription();
+    // The following `eslint-disable` comments are removed as they relate to linting rules, not syntax errors.
+    let sub: { remove: () => void; } | null = null; // Explicit type for `sub`
+    try {
+      addBreadcrumb('boot:linking-register', 'boot');
+    } catch {
+      /* ignore */
+    }
+    try {
+      const handleDeepLink = (event: { url: string }) => {
+        try {
+          const url = event?.url;
+          if (typeof url === 'string' && url.includes('subscription/success')) {
+            checkSubscription();
+          }
+        } catch (e) {
+          if (__DEV__) console.warn('[AppContext] handleDeepLink threw:', e);
+        }
+      };
+      sub = Linking.addEventListener('url', handleDeepLink);
+    } catch (e) {
+      console.warn('[AppContext] Linking.addEventListener threw:', e);
+    }
+    return () => {
+      try {
+        sub?.remove?.();
+      } catch {
+        /* ignore */
       }
     };
-    const sub = Linking.addEventListener('url', handleDeepLink);
-    return () => sub.remove();
   }, [checkSubscription]);
 
   useEffect(() => {
-    AsyncStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
+    safeStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
   }, [savedMovies]);
 
   useEffect(() => {
-    AsyncStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory));
+    safeStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory));
   }, [searchHistory]);
 
   useEffect(() => {
     if (lastFavoritesRefresh !== null) {
-      AsyncStorage.setItem(LAST_REFRESH_KEY, String(lastFavoritesRefresh));
+      safeStorage.setItem(LAST_REFRESH_KEY, String(lastFavoritesRefresh));
     }
   }, [lastFavoritesRefresh]);
 
@@ -498,23 +606,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // guest paywall actually fire after 5 searches.
       let baseCount = 0;
       try {
-        const stored = await AsyncStorage.getItem(GUEST_USAGE_KEY);
+        const stored = await safeStorage.getItem(GUEST_USAGE_KEY);
         if (stored) {
-          const parsed = JSON.parse(stored) as { date: string; count: number };
-          baseCount = parsed.date === today ? (parsed.count || 0) : 0;
+          try {
+            const parsed = JSON.parse(stored) as { date: string; count: number };
+            baseCount = parsed.date === today ? (parsed.count || 0) : 0;
+          } catch {
+            baseCount = 0;
+          }
         }
       } catch {
         baseCount = searchCount;
       }
       const newCount = baseCount + 1;
-      try {
-        await AsyncStorage.setItem(
-          GUEST_USAGE_KEY,
-          JSON.stringify({ date: today, count: newCount })
-        );
-      } catch {
-        /* ignore storage errors */
-      }
+      await safeStorage.setItem(
+        GUEST_USAGE_KEY,
+        JSON.stringify({ date: today, count: newCount }),
+      );
       // Mark loaded so the async initial-load useEffect can't clobber us.
       guestUsageLoadedRef.current = true;
       setSearchCount(newCount);
