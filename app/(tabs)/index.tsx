@@ -36,8 +36,17 @@ import MovieCard from '../../components/feature/MovieCard';
 import UpgradeModal from '../../components/feature/UpgradeModal';
 import { fetchPosters, fetchPostersAndProviders } from '../../services/posterService';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 48) / 2;
+// BUILD 25 FIX: `Dimensions.get('window')` intentionally NOT called at
+// module scope. Apple rejected Build 24 with a launch crash on iPad Air
+// 11" (M4) running iPadOS 26.6. Root cause: with `supportsTablet:false`,
+// iPad runs the app in iPhone compatibility mode. In that mode on
+// iPadOS 26, Dimensions.get('window') at module scope returns width=0
+// (or the raw physical width) BEFORE the compatibility-mode frame is
+// applied. Downstream style calculations like `(width - 48) / 2 = -24`
+// produce negative dimensions, which the iPad layout thread rejects
+// with an NSException on the background bridge queue — outside JS
+// error-handling reach. All window-dimension reads are now hoisted
+// inside the component with safe fallbacks and boundary clamping.
 
 /**
  * Parses a year from the end of a search query.
@@ -113,9 +122,64 @@ function getRandomSuggestions() {
   return shuffled.slice(0, SUGGESTION_COUNT);
 }
 
+/**
+ * Safely read the current window width. Returns a sensible iPhone-
+ * portrait fallback if Dimensions throws or reports an invalid value,
+ * which is the observed failure mode during iPhone compatibility-mode
+ * boot on iPadOS 26.
+ */
+function safeReadWindowWidth(): number {
+  try {
+    const w = Dimensions.get('window').width;
+    if (typeof w === 'number' && isFinite(w) && w > 0) return w;
+  } catch {
+    /* fall through */
+  }
+  return 375;
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  // Window width state: initialized safely, updated by Dimensions
+  // subscription. All layout calculations use this value clamped by
+  // Math.max so we can never produce a negative width for RN layout.
+  const [windowWidth, setWindowWidth] = useState<number>(safeReadWindowWidth);
+  useEffect(() => {
+    let sub: { remove: () => void } | null = null;
+    try {
+      const handler = () => {
+        try {
+          const w = Dimensions.get('window').width;
+          if (typeof w === 'number' && isFinite(w) && w > 0) {
+            setWindowWidth(w);
+          }
+        } catch {
+          /* ignore transient Dimensions errors */
+        }
+      };
+      sub = Dimensions.addEventListener('change', handler);
+    } catch {
+      /* If addEventListener throws on the first tick (rare), we simply
+         keep the initial width. This is fine because portrait apps
+         never actually resize on iPhone. */
+    }
+    return () => {
+      try {
+        sub?.remove();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  // Clamp calculated widths so a bad Dimensions read can never yield a
+  // zero or negative dimension (which triggers native NSException on
+  // iPad layout thread).
+  const cardWidth = Math.max(120, (windowWidth - 48) / 2);
+  const suggestionCardWidth = Math.max(80, (windowWidth - 56) / 3);
+
   const {
     addSearchHistory,
     remainingSearches,
@@ -454,12 +518,12 @@ export default function HomeScreen() {
               )}
               <View style={styles.searchedForContent}>
                 <Text style={styles.searchedForTitle} numberOfLines={1}>{searchedTitle}</Text>
-                <Text style={styles.searchedForSubtitle}>Horror{searchedYear ? ` · ${searchedYear}` : ''} · Original Search</Text>
+                <Text style={styles.searchedForSubtitle}>Horror{searchedYear ? ` \u00b7 ${searchedYear}` : ''} \u00b7 Original Search</Text>
                 {searchedProviders.length > 0 ? (
                   <View style={styles.searchedForProviders}>
                     <Ionicons name="play-circle" size={11} color={theme.accent} />
                     <Text style={styles.searchedForProviderText} numberOfLines={1}>
-                      {searchedProviders.slice(0, 3).join(' · ')}
+                      {searchedProviders.slice(0, 3).join(' \u00b7 ')}
                     </Text>
                   </View>
                 ) : null}
@@ -481,9 +545,9 @@ export default function HomeScreen() {
               <Animated.View
                 key={`skel-${i}`}
                 entering={FadeInDown.delay(i * 80).duration(300)}
-                style={styles.skeletonCard}
+                style={[styles.skeletonCard, { width: cardWidth }]}
               >
-                <ShimmerBlock style={styles.skeletonPoster} />
+                <ShimmerBlock style={[styles.skeletonPoster, { height: cardWidth * 1.4 }]} />
                 <View style={styles.skeletonContent}>
                   <ShimmerBlock style={[styles.skeletonLine, { width: '80%' }]} />
                   <ShimmerBlock style={[styles.skeletonLine, { width: '40%', height: 10 }]} />
@@ -502,7 +566,7 @@ export default function HomeScreen() {
               <Animated.View
                 key={movie.id}
                 entering={FadeInDown.delay(index * 60).duration(400)}
-                style={{ width: CARD_WIDTH }}
+                style={{ width: cardWidth }}
               >
                 <MovieCard
                   movie={movie}
@@ -532,6 +596,7 @@ export default function HomeScreen() {
                   key={item.title}
                   style={({ pressed }) => [
                     styles.suggestionCard,
+                    { width: suggestionCardWidth },
                     pressed && styles.suggestionCardPressed,
                   ]}
                   onPress={() => {
@@ -783,7 +848,6 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   skeletonCard: {
-    width: CARD_WIDTH,
     backgroundColor: theme.surface,
     borderRadius: theme.radius.md,
     overflow: 'hidden',
@@ -792,7 +856,6 @@ const styles = StyleSheet.create({
   },
   skeletonPoster: {
     width: '100%',
-    height: CARD_WIDTH * 1.4,
     borderRadius: 0,
   },
   skeletonContent: {
@@ -833,7 +896,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   suggestionCard: {
-    width: (width - 56) / 3,
     aspectRatio: 2 / 3,
     borderRadius: theme.radius.md,
     overflow: 'hidden',

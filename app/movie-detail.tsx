@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -28,8 +28,27 @@ import { STREAMING_COLORS, FREE_DAILY_LIMIT } from '../constants/config';
 import UpgradeModal from '../components/feature/UpgradeModal';
 import type { Movie } from '../services/recommendationService';
 
-const { width } = Dimensions.get('window');
+// BUILD 25 FIX: `Dimensions.get('window')` intentionally NOT called at
+// module scope. See app/(tabs)/index.tsx for full explanation — the
+// short version is that on iPadOS 26.6 with iPhone-only apps running in
+// compatibility mode, module-scope reads return width=0 before the
+// compatibility frame is applied, producing negative style values that
+// crash the iPad layout thread with a native NSException.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/**
+ * Safely read the current window width. Returns a sensible iPhone-
+ * portrait fallback if Dimensions throws or reports an invalid value.
+ */
+function safeReadWindowWidth(): number {
+  try {
+    const w = Dimensions.get('window').width;
+    if (typeof w === 'number' && isFinite(w) && w > 0) return w;
+  } catch {
+    /* fall through */
+  }
+  return 375;
+}
 
 export default function MovieDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -39,6 +58,41 @@ export default function MovieDetailScreen() {
   const { isSaved, toggleSave } = useApp();
   const heartScale = useSharedValue(1);
   const [showUpgrade, setShowUpgrade] = useState(false);
+
+  // Window width state: initialized safely inside the component, never
+  // at module scope. Updated by Dimensions subscription.
+  const [windowWidth, setWindowWidth] = useState<number>(safeReadWindowWidth);
+  useEffect(() => {
+    let sub: { remove: () => void } | null = null;
+    try {
+      const handler = () => {
+        try {
+          const w = Dimensions.get('window').width;
+          if (typeof w === 'number' && isFinite(w) && w > 0) {
+            setWindowWidth(w);
+          }
+        } catch {
+          /* ignore transient Dimensions errors */
+        }
+      };
+      sub = Dimensions.addEventListener('change', handler);
+    } catch {
+      /* keep initial width if listener registration fails */
+    }
+    return () => {
+      try {
+        sub?.remove();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  // Clamp so a bad Dimensions read can never yield a zero or negative
+  // dimension. Hero is a square-ish poster crop; cap the height so it
+  // doesn't consume the entire viewport on iPad landscape edge cases.
+  const heroWidth = Math.max(240, windowWidth);
+  const heroHeight = Math.max(240, heroWidth * 1.2);
 
   const movie = useMemo<Movie | null>(() => {
     try {
@@ -193,7 +247,7 @@ export default function MovieDetailScreen() {
       >
         {/* Hero Image */}
         <Animated.View entering={FadeIn.duration(500)}>
-          <View style={styles.heroContainer}>
+          <View style={[styles.heroContainer, { width: heroWidth, height: heroHeight }]}>
             {hasPoster ? (
               <Image
                 source={{ uri: movie.posterUrl as string }}
@@ -435,8 +489,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   heroContainer: {
-    width: width,
-    height: width * 1.2,
     position: 'relative',
   },
   heroImage: {
