@@ -48,6 +48,40 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // ---- Startup Beacon short-circuit ----
+  // The React Native client fires a lightweight POST to this endpoint
+  // immediately after JS mounts (see services/startupBeacon.ts). The
+  // request carries the `x-startup-beacon: 1` header and a small JSON
+  // payload describing the device, OS version, and boot phase. We
+  // detect it FIRST — before any auth, Stripe, or DB work — log the
+  // payload for durable server-side evidence that JS ran on the
+  // device, and return a fast 200. This proves whether a crashed
+  // review device (e.g. Apple's iPadOS 26.6 iPad Air M4) ever got
+  // past JS bootstrap, so we can distinguish JS bugs from pre-JS
+  // native-module init failures.
+  if (req.method === 'POST' && req.headers.get('x-startup-beacon') === '1') {
+    let payload: any = null;
+    try {
+      payload = await req.json();
+    } catch {
+      payload = null;
+    }
+    logStep('STARTUP_BEACON', {
+      phase: req.headers.get('x-beacon-phase') || payload?.phase || 'unknown',
+      buildNumber: payload?.buildNumber || null,
+      appVersion: payload?.appVersion || null,
+      device: payload?.device || null,
+      extra: payload?.extra || null,
+      userAgent: req.headers.get('user-agent') || null,
+      forwardedFor: req.headers.get('x-forwarded-for') || null,
+      receivedAt: new Date().toISOString(),
+    });
+    return new Response(
+      JSON.stringify({ beacon: 'ack', phase: payload?.phase ?? null }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+    );
+  }
+
   try {
     logStep('Function started');
 

@@ -19,6 +19,7 @@ import { AnimatedSplash } from '../components/feature/AnimatedSplash';
 import { ErrorBoundary } from '../components/feature/ErrorBoundary';
 import { initErrorReporting } from '../services/errorReportingService';
 import { suppressBenignAuthErrors } from '../services/authRecoveryService';
+import { sendStartupBeacon } from '../services/startupBeacon';
 import { theme } from '../constants/theme';
 import * as SplashScreen from 'expo-splash-screen';
 
@@ -56,6 +57,18 @@ function runBootSideEffectsOnce() {
   } catch (e) {
     if (__DEV__) console.warn('[boot] initErrorReporting failed', e);
   }
+
+  // Fire the startup beacon as the VERY LAST boot side effect. If this
+  // POST reaches the Supabase Edge Function, we have durable server-
+  // side proof that JavaScript executed on the device — proving any
+  // subsequent crash was post-mount (JS) rather than pre-JS native
+  // module init. Absence of a beacon from Apple's iPadOS 26.6 test
+  // device would conversely prove the crash is native-init.
+  try {
+    sendStartupBeacon('mount');
+  } catch (e) {
+    if (__DEV__) console.warn('[boot] sendStartupBeacon(mount) failed', e);
+  }
 }
 
 export default function RootLayout() {
@@ -77,6 +90,13 @@ export default function RootLayout() {
 
   const handleSplashFinish = useCallback(() => {
     setShowSplash(false);
+    // Second beacon: proves the animated splash + first Stack render
+    // completed without native layout exceptions on this device.
+    try {
+      sendStartupBeacon('post-splash');
+    } catch {
+      /* never let a diagnostic call break dismissal */
+    }
   }, []);
 
   return (
