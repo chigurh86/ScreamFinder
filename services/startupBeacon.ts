@@ -33,8 +33,36 @@ import { Platform } from 'react-native';
 
 const BACKEND_URL = 'https://edrhopkytkvaktededrh.backend.onspace.ai';
 const BEACON_ENDPOINT = `${BACKEND_URL}/functions/v1/check-subscription`;
-const BEACON_APP_VERSION = '1.0.0';
-const BEACON_BUILD_NUMBER = '26';
+
+/**
+ * Read the app's version + build number DYNAMICALLY from expo-constants.
+ * A hardcoded string here drifts as soon as EAS auto-increments
+ * `buildNumber` in app.json (see `autoIncrement: "buildNumber"` in
+ * eas.json). We want the beacon payload to match whatever the OS
+ * actually reports so Edge Function logs are trustworthy.
+ *
+ * The try/catch is defensive: if expo-constants ever fails to load
+ * (or a future prebuild strips it), we fall back to 'unknown' so the
+ * beacon still fires with useful device info.
+ */
+function readAppMetadata(): { appVersion: string; buildNumber: string } {
+  try {
+    // Lazy require so a broken expo-constants can never crash beacon boot.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Constants = require('expo-constants').default;
+    const cfg: any = Constants?.expoConfig || Constants?.manifest || {};
+    const version: string = cfg?.version || 'unknown';
+    const iosBuild: string = cfg?.ios?.buildNumber;
+    const androidCode: string | number | undefined = cfg?.android?.versionCode;
+    const buildNumber =
+      Platform.OS === 'ios'
+        ? (iosBuild || 'unknown')
+        : (androidCode !== undefined ? String(androidCode) : 'unknown');
+    return { appVersion: version, buildNumber };
+  } catch {
+    return { appVersion: 'unknown', buildNumber: 'unknown' };
+  }
+}
 
 export type BeaconPhase =
   | 'mount' // JS runtime finished evaluating app/_layout.tsx and useEffect fired
@@ -87,11 +115,13 @@ export function sendStartupBeacon(phase: BeaconPhase, extra?: Record<string, unk
 
     const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
+    const { appVersion, buildNumber } = readAppMetadata();
+
     const payload = {
       __beacon: true,
       phase,
-      appVersion: BEACON_APP_VERSION,
-      buildNumber: BEACON_BUILD_NUMBER,
+      appVersion,
+      buildNumber,
       timestamp: new Date().toISOString(),
       device: collectDeviceInfo(),
       extra: extra || null,
