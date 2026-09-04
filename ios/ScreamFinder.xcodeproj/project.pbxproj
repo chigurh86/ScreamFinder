@@ -9,24 +9,24 @@
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		917253420C88BC5EAB76DDEE /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2285A08D771F5B8C0C705E /* ExpoModulesProvider.swift */; };
+		538369C4D47B6B7F53B8D8DA /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA0EC8095DB47A6865D96315 /* ExpoModulesProvider.swift */; };
+		7C7011CDD427D4CAF4AF9723 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CC52381B4ABCF7640B9DC0DB /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		D0F6CDFFE65CD628C0C1C5E6 /* libPods-ScreamFinder.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 41737ED435156BFEF688B8E0 /* libPods-ScreamFinder.a */; };
-		E7D88D65029350B5EEE72D0F /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = DADC8E6297F56C60EEC81B87 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		F828598F6A17242E809A1E27 /* libPods-ScreamFinder.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E544712B0578561B2D29D0FE /* libPods-ScreamFinder.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* ScreamFinder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreamFinder.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = ScreamFinder/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = ScreamFinder/Info.plist; sourceTree = "<group>"; };
-		2B7176841B5993F9D68DA4D5 /* Pods-ScreamFinder.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ScreamFinder.release.xcconfig"; path = "Target Support Files/Pods-ScreamFinder/Pods-ScreamFinder.release.xcconfig"; sourceTree = "<group>"; };
-		30E4954C4903D4AE671EEE02 /* Pods-ScreamFinder.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ScreamFinder.debug.xcconfig"; path = "Target Support Files/Pods-ScreamFinder/Pods-ScreamFinder.debug.xcconfig"; sourceTree = "<group>"; };
-		41737ED435156BFEF688B8E0 /* libPods-ScreamFinder.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ScreamFinder.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		4C2285A08D771F5B8C0C705E /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ScreamFinder/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = ScreamFinder/SplashScreen.storyboard; sourceTree = "<group>"; };
+		AF3589CD5CFC2844CF82B651 /* Pods-ScreamFinder.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ScreamFinder.release.xcconfig"; path = "Target Support Files/Pods-ScreamFinder/Pods-ScreamFinder.release.xcconfig"; sourceTree = "<group>"; };
+		BA0EC8095DB47A6865D96315 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ScreamFinder/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		DADC8E6297F56C60EEC81B87 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ScreamFinder/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		CC52381B4ABCF7640B9DC0DB /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ScreamFinder/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D7FC1244474BCF10D020E861 /* Pods-ScreamFinder.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ScreamFinder.debug.xcconfig"; path = "Target Support Files/Pods-ScreamFinder/Pods-ScreamFinder.debug.xcconfig"; sourceTree = "<group>"; };
+		E544712B0578561B2D29D0FE /* libPods-ScreamFinder.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ScreamFinder.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = ScreamFinder/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* ScreamFinder-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "ScreamFinder-Bridging-Header.h"; path = "ScreamFinder/ScreamFinder-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -37,21 +37,19 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D0F6CDFFE65CD628C0C1C5E6 /* libPods-ScreamFinder.a in Frameworks */,
+				F828598F6A17242E809A1E27 /* libPods-ScreamFinder.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		05659947549CB6A38CA3D127 /* Pods */ = {
+		04418BE0392740B0AF0DE541 /* ExpoModulesProviders */ = {
 			isa = PBXGroup;
 			children = (
-				30E4954C4903D4AE671EEE02 /* Pods-ScreamFinder.debug.xcconfig */,
-				2B7176841B5993F9D68DA4D5 /* Pods-ScreamFinder.release.xcconfig */,
+				26FB1EF17B1C8EA5BBE29818 /* ScreamFinder */,
 			);
-			name = Pods;
-			path = Pods;
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		13B07FAE1A68108700A75B9A /* ScreamFinder */ = {
@@ -63,7 +61,15 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				DADC8E6297F56C60EEC81B87 /* PrivacyInfo.xcprivacy */,
+				CC52381B4ABCF7640B9DC0DB /* PrivacyInfo.xcprivacy */,
+			);
+			name = ScreamFinder;
+			sourceTree = "<group>";
+		};
+		26FB1EF17B1C8EA5BBE29818 /* ScreamFinder */ = {
+			isa = PBXGroup;
+			children = (
+				BA0EC8095DB47A6865D96315 /* ExpoModulesProvider.swift */,
 			);
 			name = ScreamFinder;
 			sourceTree = "<group>";
@@ -72,17 +78,9 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				41737ED435156BFEF688B8E0 /* libPods-ScreamFinder.a */,
+				E544712B0578561B2D29D0FE /* libPods-ScreamFinder.a */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		3A5712904F5ECB960EABABC7 /* ScreamFinder */ = {
-			isa = PBXGroup;
-			children = (
-				4C2285A08D771F5B8C0C705E /* ExpoModulesProvider.swift */,
-			);
-			name = ScreamFinder;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -99,8 +97,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				05659947549CB6A38CA3D127 /* Pods */,
-				B3E87994677E289A7E6C6DE8 /* ExpoModulesProviders */,
+				CE525F8D2B30C3E39F595151 /* Pods */,
+				04418BE0392740B0AF0DE541 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -115,14 +113,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		B3E87994677E289A7E6C6DE8 /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				3A5712904F5ECB960EABABC7 /* ScreamFinder */,
-			);
-			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -130,6 +120,16 @@
 			);
 			name = Supporting;
 			path = ScreamFinder/Supporting;
+			sourceTree = "<group>";
+		};
+		CE525F8D2B30C3E39F595151 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				D7FC1244474BCF10D020E861 /* Pods-ScreamFinder.debug.xcconfig */,
+				AF3589CD5CFC2844CF82B651 /* Pods-ScreamFinder.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -140,13 +140,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "ScreamFinder" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				404C5E04535C1ED71ECC95DD /* [Expo] Configure project */,
+				62BB54305B3A53B0230A4393 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				0A03CC0C0886D14A5DB4CDC7 /* [CP] Embed Pods Frameworks */,
+				7CF8278607E8C4222DE4E304 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -196,7 +196,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				E7D88D65029350B5EEE72D0F /* PrivacyInfo.xcprivacy in Resources */,
+				7C7011CDD427D4CAF4AF9723 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -240,7 +240,26 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		0A03CC0C0886D14A5DB4CDC7 /* [CP] Embed Pods Frameworks */ = {
+		62BB54305B3A53B0230A4393 /* [Expo] Configure project */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "[Expo] Configure project";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-ScreamFinder/expo-configure-project.sh\"\n";
+		};
+		7CF8278607E8C4222DE4E304 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -259,25 +278,6 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-ScreamFinder/Pods-ScreamFinder-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
-		};
-		404C5E04535C1ED71ECC95DD /* [Expo] Configure project */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "[Expo] Configure project";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-ScreamFinder/expo-configure-project.sh\"\n";
 		};
 		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -399,7 +399,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				917253420C88BC5EAB76DDEE /* ExpoModulesProvider.swift in Sources */,
+				538369C4D47B6B7F53B8D8DA /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -408,7 +408,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 30E4954C4903D4AE671EEE02 /* Pods-ScreamFinder.debug.xcconfig */;
+			baseConfigurationReference = D7FC1244474BCF10D020E861 /* Pods-ScreamFinder.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -444,7 +444,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 2B7176841B5993F9D68DA4D5 /* Pods-ScreamFinder.release.xcconfig */;
+			baseConfigurationReference = AF3589CD5CFC2844CF82B651 /* Pods-ScreamFinder.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
