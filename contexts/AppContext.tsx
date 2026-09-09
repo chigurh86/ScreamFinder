@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Linking, Platform } from 'react-native';
 import { safeStorage } from '../services/safeStorage';
 import { getSupabaseClient } from '@/template';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import type { Movie } from '../services/recommendationService';
 import { setUserContext, addBreadcrumb } from '../services/errorReportingService';
 
@@ -67,6 +68,7 @@ interface AppContextType {
   refreshProfile: () => Promise<void>;
   currentUser: AuthUser | null;
   signOut: () => Promise<{ error: string | null }>;
+  deleteAccount: () => Promise<{ error: string | null }>;
   refreshAuthState: () => Promise<AuthUser | null>;
 }
 
@@ -694,6 +696,73 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return null;
   }, []);
 
+  // Permanently deletes the current user's account via the server-side
+  // `delete-account` Edge Function, which uses the service role to
+  // delete the auth.users row (cascading to user_profiles,
+  // apple_subscriptions, and search_usage via ON DELETE CASCADE FKs)
+  // and best-effort cancels any linked Stripe subscription and removes
+  // avatar files from Storage.
+  //
+  // Required by Apple App Store Review Guideline 5.1.1(v).
+  const deleteAccount = useCallback(async (): Promise<{
+    error: string | null;
+  }> => {
+    if (!currentUser) {
+      return { error: 'You must be signed in to delete your account.' };
+    }
+    try {
+      const supabase = getSupabaseClient();
+      const { error } = await supabase.functions.invoke('delete-account');
+
+      if (error) {
+        let msg = error.message || 'Failed to delete account.';
+        if (error instanceof FunctionsHttpError) {
+          try {
+            const text = await error.context?.text();
+            if (text) {
+              try {
+                const parsed = JSON.parse(text);
+                msg = parsed.error || text;
+              } catch {
+                msg = text;
+              }
+            }
+          } catch {
+            /* ignore — fall back to error.message */
+          }
+        }
+        return { error: msg };
+      }
+
+      // Server-side deletion succeeded. Clear the local session and
+      // in-memory state so the UI drops back to guest mode immediately.
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        /* session may already be invalid post-deletion; ignore */
+      }
+      setCurrentUser(null);
+      setAvatarUrl(null);
+      setProfileName(null);
+      setIsSubscribed(false);
+      setSubscriptionEnd(null);
+      setSubscriptionSource(null);
+      setSavedMovies([]);
+      setSearchHistory([]);
+      setSearchCount(0);
+      try {
+        setUserContext(null);
+      } catch {
+        /* ignore Sentry tagging errors */
+      }
+      return { error: null };
+    } catch (e) {
+      return {
+        error: e instanceof Error ? e.message : 'Failed to delete account.',
+      };
+    }
+  }, [currentUser]);
+
   // Directly signs out via Supabase and immediately clears local state.
   // Bypasses the template's logout wrapper which sometimes throws even
   // when the sign-out succeeds server-side.
@@ -761,6 +830,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         refreshProfile,
         currentUser,
         signOut,
+        deleteAccount,
         refreshAuthState,
       }}
     >

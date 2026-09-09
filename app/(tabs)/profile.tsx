@@ -54,6 +54,7 @@ export default function ProfileScreen() {
     profileName,
     currentUser,
     signOut,
+    deleteAccount,
   } = useApp();
 
   const [portalLoading, setPortalLoading] = useState(false);
@@ -61,6 +62,7 @@ export default function ProfileScreen() {
   const [restoringPurchases, setRestoringPurchases] = useState(false);
   const [iapLoading, setIapLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const useAppleIAP = isIOSPlatform();
   const isGuest = !currentUser;
@@ -259,6 +261,53 @@ export default function ProfileScreen() {
     if (error) {
       showAlert('Error', error);
     }
+  };
+
+  // Two-step confirmation before permanently deleting the account.
+  // Apple App Store Review Guideline 5.1.1(v) requires an in-app path
+  // to delete the account and all associated data.
+  const handleDeleteAccount = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    showAlert(
+      'Delete Your Account?',
+      'This will permanently delete your account and all associated data, including your saved favorites, search history, profile photo, and subscription records. This action cannot be undone.\n\nIf you have an active App Store subscription, cancel it separately in Settings > Apple ID > Subscriptions to stop future charges.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            showAlert(
+              'Are you absolutely sure?',
+              'Your account and all data will be removed from our servers immediately. There is no way to recover this account after deletion.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete Forever',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setDeleteLoading(true);
+                    const { error } = await deleteAccount();
+                    setDeleteLoading(false);
+                    if (error) {
+                      showAlert('Deletion Failed', error);
+                      return;
+                    }
+                    Haptics.notificationAsync(
+                      Haptics.NotificationFeedbackType.Success,
+                    );
+                    showAlert(
+                      'Account Deleted',
+                      'Your account and all associated data have been permanently deleted.',
+                    );
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -623,6 +672,40 @@ export default function ProfileScreen() {
             </Text>
           </Pressable>
         </Animated.View>
+
+        {/* Delete Account (signed-in users only) — required by
+            Apple App Store Review Guideline 5.1.1(v). */}
+        {!isGuest ? (
+          <Animated.View entering={FadeInDown.delay(500).duration(400)}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.deleteAccountButton,
+                pressed && { opacity: 0.7 },
+                deleteLoading && { opacity: 0.5 },
+              ]}
+              onPress={handleDeleteAccount}
+              disabled={deleteLoading}
+              accessibilityLabel="Delete Account"
+              accessibilityHint="Permanently deletes your account and all associated data"
+            >
+              {deleteLoading ? (
+                <ActivityIndicator size="small" color={theme.textMuted} />
+              ) : (
+                <Ionicons
+                  name="trash-outline"
+                  size={18}
+                  color={theme.textMuted}
+                />
+              )}
+              <Text style={styles.deleteAccountText}>
+                {deleteLoading ? 'Deleting Account\u2026' : 'Delete Account'}
+              </Text>
+            </Pressable>
+            <Text style={styles.deleteAccountHint}>
+              Permanently removes your account and all associated data
+            </Text>
+          </Animated.View>
+        ) : null}
 
         {/* TMDB Attribution */}
         <View style={styles.tmdbAttribution}>
@@ -1013,6 +1096,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: theme.primary,
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 44,
+    marginHorizontal: 16,
+    marginTop: 0,
+    marginBottom: 6,
+    paddingVertical: 12,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: 'transparent',
+  },
+  deleteAccountText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.textMuted,
+  },
+  deleteAccountHint: {
+    fontSize: 11,
+    color: theme.textMuted,
+    textAlign: 'center',
+    marginHorizontal: 16,
+    marginBottom: 16,
   },
   tmdbAttribution: {
     alignItems: 'center',
