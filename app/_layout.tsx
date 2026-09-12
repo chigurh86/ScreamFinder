@@ -77,8 +77,23 @@ export default function RootLayout() {
   // Run boot side effects exactly once, INSIDE the React tree, so any
   // throw is caught by the outer ErrorBoundary instead of crashing the
   // native process.
+  //
+  // BUILD 28 HARDENING (iOS 27 crash mitigation): We now push the
+  // side-effect batch behind a 100ms setTimeout inside the useEffect.
+  // On iOS 27 the RN bridge is measurably stricter about when native
+  // modules can be touched during initial mount. Splash-hide, Sentry
+  // init, and the startup beacon all touch native modules; delaying
+  // by 100ms gives the RN bridge a full JS turn to finish setting up
+  // its dispatch queues before we poke any of them.
   useEffect(() => {
-    runBootSideEffectsOnce();
+    const timer = setTimeout(() => {
+      try {
+        runBootSideEffectsOnce();
+      } catch (e) {
+        if (__DEV__) console.warn('[boot] deferred side effects threw', e);
+      }
+    }, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleSplashLayout = useCallback(() => {

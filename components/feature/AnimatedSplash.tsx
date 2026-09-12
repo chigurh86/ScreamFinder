@@ -1,15 +1,30 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import { View, StyleSheet, Animated, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { theme } from '../../constants/theme';
 
-// NOTE: `Dimensions.get('window')` intentionally NOT called at module
-// scope. On iPad running an iPhone-only app in compatibility mode, the
-// window dimensions can be zero or the raw physical dimensions before
-// the compatibility-mode frame is applied. Reading them at module load
-// (which happens during the JS boot phase) caused erratic style values
-// on iPad Air 11" (M3). All screens using Dimensions now read them
-// inside the component body / useEffect where the frame is stable.
+// BUILD 28 HARDENING (iOS 27 crash mitigation):
+// Apple rejected Build 27 with a launch crash on iPhone 17 Pro Max
+// running iOS 27.0. iOS 27 tightens the RN native animation driver
+// and image-decode paths compared to iOS 26. Every extra Animated
+// node, parallel sequence, and inline interpolate() we allocate at
+// splash time is another place where a native NSException can fire
+// on the ExceptionsManagerQueue before React's ErrorBoundary can
+// intercept it.
+//
+// This splash has been reduced to the absolute minimum:
+//   - 2 Animated.Value refs (down from 7)
+//   - 1 timing sequence with 3 steps (down from a parallel/sequence chain)
+//   - Zero .interpolate() calls in JSX (they created new native
+//     interpolation nodes on every render pass)
+//   - All Animated.start() calls wrapped in try/catch
+//   - Hard 3.5s finish timeout so the splash NEVER hangs
+//   - Text fallback that renders instantly even if both image
+//     assets fail to decode
+//
+// If any of the reduced surface still throws on iOS 27, the outer
+// ErrorBoundary in _layout.tsx catches it and dismisses the splash
+// via onFinish(), letting the app boot normally.
 
 interface AnimatedSplashProps {
   onFinish: () => void;
@@ -17,159 +32,78 @@ interface AnimatedSplashProps {
 }
 
 export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
-  const eyesOpacity = useRef(new Animated.Value(0)).current;
-  const eyesScale = useRef(new Animated.Value(0.7)).current;
-  const glowOpacity = useRef(new Animated.Value(0)).current;
-  const glowScale = useRef(new Animated.Value(0.5)).current;
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleTranslateY = useRef(new Animated.Value(20)).current;
+  // Just two shared values: one for content fade-in, one for the
+  // whole container fade-out. Everything else is derived directly
+  // via Animated (no interpolate()).
+  const contentOpacity = useRef(new Animated.Value(0)).current;
   const containerOpacity = useRef(new Animated.Value(1)).current;
 
-  // BUILD 23 HARDENING: On iOS 26.6 fresh-sandbox launches, the native
-  // image decoder queue can throw NSExceptions decoding cached-but-
-  // unmigrated PNG assets. Tracking image failures at the JS level so
-  // we can render text-only fallbacks if either splash asset fails to
-  // decode. This does not prevent a native throw on its own, but it
-  // covers the case where the JS-observable onError fires before the
-  // native decoder aborts on a subsequent frame.
   const [eyesLoadFailed, setEyesLoadFailed] = useState(false);
   const [knifeLoadFailed, setKnifeLoadFailed] = useState(false);
 
-  const handleEyesError = useCallback((err: unknown) => {
-    if (__DEV__) console.warn('[AnimatedSplash] eyes image failed:', err);
+  const handleEyesError = useCallback(() => {
     setEyesLoadFailed(true);
   }, []);
 
-  const handleKnifeError = useCallback((err: unknown) => {
-    if (__DEV__) console.warn('[AnimatedSplash] knife image failed:', err);
+  const handleKnifeError = useCallback(() => {
     setKnifeLoadFailed(true);
   }, []);
-  // NOTE: We used to precompute Animated.multiply(...) inside useRef init
-  // to avoid re-creating them on every render. On iOS 26 real devices
-  // that call inside useRef initialization was crashing the app at
-  // launch (RCTFatal on the animation graph). We now just apply a
-  // static numeric scale factor via inline transform — no dynamic
-  // animated node is created during render, so nothing can throw.
 
   useEffect(() => {
     let finished = false;
     const safeFinish = () => {
       if (finished) return;
       finished = true;
-      onFinish();
+      try {
+        onFinish();
+      } catch {
+        /* onFinish must never throw the splash into a bad state */
+      }
     };
 
-    // Phase 1: Blood-red glow pulses in
-    Animated.sequence([
-      Animated.delay(200),
-      // Glow appears
-      Animated.parallel([
-        Animated.timing(glowOpacity, {
+    // Absolute-worst-case safety net. If ANY Animated call below
+    // fails silently or hangs on iOS 27, we still dismiss the splash
+    // after 3.5 seconds and let the app take over.
+    const hardTimeout = setTimeout(safeFinish, 3500);
+
+    try {
+      // Simple, single-track sequence:
+      //   1. Fade content in over 600ms
+      //   2. Hold for 1400ms
+      //   3. Fade whole container out over 400ms
+      // No parallel calls, no interpolations, no spring physics.
+      Animated.sequence([
+        Animated.timing(contentOpacity, {
           toValue: 1,
           duration: 600,
           useNativeDriver: true,
         }),
-        Animated.timing(glowScale, {
-          toValue: 1.2,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Eyes fade in with scale
-      Animated.parallel([
-        Animated.timing(eyesOpacity, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.spring(eyesScale, {
-          toValue: 1,
-          friction: 6,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Title slides up
-      Animated.parallel([
-        Animated.timing(titleOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(titleTranslateY, {
+        Animated.delay(1400),
+        Animated.timing(containerOpacity, {
           toValue: 0,
           duration: 400,
           useNativeDriver: true,
         }),
-      ]),
-      // Hold for a moment
-      Animated.delay(800),
-      // Fade out entire splash
-      Animated.timing(containerOpacity, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      safeFinish();
-    });
+      ]).start(() => {
+        safeFinish();
+      });
+    } catch {
+      // Animated.start() itself threw. Let the hard timeout finish us.
+    }
 
-    // Safety net: ensure splash dismisses within 4 seconds even if any
-    // animation step is interrupted (e.g. hot reload, web rendering quirks).
-    const fallbackTimeout = setTimeout(safeFinish, 4000);
-    return () => clearTimeout(fallbackTimeout);
-  }, []);
+    return () => clearTimeout(hardTimeout);
+  }, [contentOpacity, containerOpacity, onFinish]);
 
   return (
     <Animated.View
       onLayout={onLayout}
       style={[styles.container, { opacity: containerOpacity }]}
     >
-      {/* Blood-red glow behind eyes */}
       <Animated.View
-        style={[
-          styles.glowCircle,
-          {
-            opacity: glowOpacity,
-            transform: [{ scale: glowScale }],
-          },
-        ]}
-      />
-
-      {/* Secondary pulse glow — driven by same glowOpacity/glowScale
-          but multiplied via interpolate (safe on all platforms). */}
-      <Animated.View
-        style={[
-          styles.glowCircleOuter,
-          {
-            opacity: glowOpacity.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 0.4],
-            }),
-            transform: [
-              {
-                scale: glowScale.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 1.5],
-                }),
-              },
-            ],
-          },
-        ]}
-      />
-
-      {/* Spooky eyes */}
-      <Animated.View
-        style={[
-          styles.eyesContainer,
-          {
-            opacity: eyesOpacity,
-            transform: [{ scale: eyesScale }],
-          },
-        ]}
+        style={[styles.content, { opacity: contentOpacity }]}
       >
         {eyesLoadFailed ? (
-          <View style={[styles.eyesImage, styles.eyesFallback]} />
+          <View style={styles.eyesFallback} />
         ) : (
           <Image
             source={require('../../assets/images/spooky-eyes.png')}
@@ -178,21 +112,10 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
             onError={handleEyesError}
           />
         )}
-      </Animated.View>
 
-      {/* App title */}
-      <Animated.View
-        style={[
-          styles.titleContainer,
-          {
-            opacity: titleOpacity,
-            transform: [{ translateY: titleTranslateY }],
-          },
-        ]}
-      >
         <View style={styles.titleRow}>
           {knifeLoadFailed ? (
-            <Animated.Text style={styles.titleFallback}>ScreamFinder</Animated.Text>
+            <Text style={styles.titleFallback}>ScreamFinder</Text>
           ) : (
             <Image
               source={require('../../assets/images/knife-logo.png')}
@@ -202,7 +125,8 @@ export function AnimatedSplash({ onFinish, onLayout }: AnimatedSplashProps) {
             />
           )}
         </View>
-        <Animated.Text style={styles.tagline}>Find your next nightmare</Animated.Text>
+
+        <Text style={styles.tagline}>Find your next nightmare</Text>
       </Animated.View>
     </Animated.View>
   );
@@ -216,36 +140,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 9999,
   },
-  glowCircle: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: 'rgba(220, 38, 38, 0.25)',
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 60,
-    elevation: 20,
-  },
-  glowCircleOuter: {
-    position: 'absolute',
-    width: 340,
-    height: 340,
-    borderRadius: 170,
-    backgroundColor: 'rgba(220, 38, 38, 0.08)',
-  },
-  eyesContainer: {
+  content: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   eyesImage: {
     width: 180,
     height: 100,
+    marginBottom: 32,
   },
-  titleContainer: {
-    alignItems: 'center',
-    marginTop: 32,
+  eyesFallback: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(220, 38, 38, 0.35)',
+    marginBottom: 32,
   },
   titleRow: {
     flexDirection: 'row',
@@ -257,17 +166,7 @@ const styles = StyleSheet.create({
     width: 256,
     height: 64,
   },
-  eyesFallback: {
-    borderRadius: 50,
-    backgroundColor: 'rgba(220, 38, 38, 0.35)',
-  },
   titleFallback: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: theme.primary,
-    letterSpacing: 1,
-  },
-  title: {
     fontSize: 30,
     fontWeight: '800',
     color: theme.primary,

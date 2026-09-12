@@ -137,6 +137,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       username: u.user_metadata?.username || u.user_metadata?.full_name,
     });
 
+    // BUILD 28 HARDENING (iOS 27 crash mitigation): Delay bumped from
+    // 0ms to 250ms. Apple rejected Build 27 with a launch crash on
+    // iPhone 17 Pro Max / iOS 27.0. iOS 27 tightens native-module
+    // initialization: Supabase's client construction touches
+    // URL polyfill, AsyncStorage, and networking, all of which
+    // hit iOS 27's stricter dispatch-queue rules the moment they're
+    // called. A 250ms delay gives the RN bridge, the auto-linked
+    // native modules, and iOS's own view hierarchy time to finish
+    // initializing before we ask Supabase to construct itself.
     const setupTimer = setTimeout(() => {
       if (!mounted) return;
       try {
@@ -231,7 +240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         console.warn('[AppContext] onAuthStateChange failed:', e);
       }
-    }, 0);
+    }, 250);
 
     return () => {
       mounted = false;
