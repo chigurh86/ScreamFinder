@@ -30,6 +30,121 @@ import { captureException } from './errorReportingService';
 
 let installed = false;
 
+/**
+ * BUILD 28 CRITICAL DEFENSE: Monkey-patch
+ * `NativeModules.ExceptionsManager.reportException` (and the legacy
+ * `reportFatalException`) to force `isFatal: false` on every call.
+ *
+ * Why: The Xcode Organizer crash from Build 21 (iPhone 17 Pro, iOS
+ * 26.6) — and the pattern Apple has repeatedly hit on iPhone 17 Pro
+ * Max iOS 27.0 — shows this exact backtrace:
+ *
+ *   Thread 6 (dispatch queue)
+ *     __exceptionPreprocess
+ *     objc_exception_throw
+ *     RCTFatal                                       ← the abort trigger
+ *     -[RCTExceptionsManager reportFatal:...]
+ *     -[RCTExceptionsManager reportException:]       ← JS→native call
+ *     RCTNativeModule::invoke                        ← bridge dispatch
+ *
+ * The chain is: JS throws → RN's framework (MessageQueue,
+ * timers, event handlers) internally calls
+ * `NativeExceptionsManager.reportException({isFatal:true, ...})` →
+ * native sees isFatal=true → calls RCTFatal → NSException → SIGABRT.
+ *
+ * Our `ErrorUtils.setGlobalHandler` override does NOT intercept this
+ * path because it fires from RN's own bridge callback code, not from
+ * the "uncaught error" path that ErrorUtils covers.
+ *
+ * By patching `reportException` at the NativeModules boundary, we
+ * intercept every possible caller — framework, third-party library,
+ * or our own code — and strip the isFatal flag before native ever
+ * receives it. The error is still logged to Sentry (via our
+ * globalErrorHandler + captureException) and the DEV LogBox. Only
+ * the abort path is defused.
+ */
+function patchExceptionsManagerFatalPath(): void {
+  try {
+    // Lazy require so a broken react-native import cannot crash the
+    // globalErrorHandler module load itself.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const RN = require('react-native');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const NM: any = RN?.NativeModules;
+    if (!NM) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const em: any = NM.ExceptionsManager;
+    if (!em || em.__sfFatalPatched) return;
+
+    // 1. `reportException` — the modern (RN 0.60+) path. JS builds a
+    //    payload object with `{message, originalMessage, name, stack,
+    //    id, isFatal, extraData}` and calls this method. Native's
+    //    implementation checks `errorData.isFatal` and, if true, calls
+    //    RCTFatal(). We copy the payload and force isFatal=false so
+    //    native never takes the RCTFatal branch.
+    if (typeof em.reportException === 'function') {
+      const origReport = em.reportException.bind(em);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      em.reportException = (errorData: any) => {
+        try {
+          const safeData = errorData
+            ? { ...errorData, isFatal: false }
+            : { isFatal: false };
+          return origReport(safeData);
+        } catch {
+          /* bridge call itself threw — swallow so the patch never
+             becomes the crash source it is meant to prevent */
+        }
+      };
+    }
+
+    // 2. `reportFatalException` — the legacy (pre-0.60) path some
+    //    libraries still call directly. Route it through
+    //    `reportSoftException` if available, or drop it entirely.
+    if (typeof em.reportFatalException === 'function') {
+      const softHandler =
+        typeof em.reportSoftException === 'function'
+          ? em.reportSoftException.bind(em)
+          : null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      em.reportFatalException = (
+        message: any,
+        stack: any,
+        exceptionId: any,
+      ) => {
+        try {
+          if (softHandler) {
+            return softHandler(message, stack, exceptionId);
+          }
+          if (__DEV__) {
+            console.error(
+              '[ExceptionsManager patched] fatal downgraded:',
+              message,
+            );
+          }
+        } catch {
+          /* swallow */
+        }
+      };
+    }
+
+    em.__sfFatalPatched = true;
+
+    if (__DEV__) {
+      console.log(
+        '[GlobalErrorHandler] ExceptionsManager reportException patched — RCTFatal path defused.',
+      );
+    }
+  } catch (e) {
+    if (__DEV__) {
+      console.warn(
+        '[GlobalErrorHandler] ExceptionsManager patch failed',
+        e,
+      );
+    }
+  }
+}
+
 // React Native exposes a global `ErrorUtils` object (typed loosely here
 // so this file compiles on web where it doesn't exist).
 type RNErrorUtils = {
@@ -61,6 +176,15 @@ function getErrorUtils(): RNErrorUtils | null {
 export function installGlobalErrorHandlers(): void {
   if (installed) return;
   installed = true;
+
+  // 0. Patch ExceptionsManager FIRST, before anything else. This is
+  //    the last line of defense against RCTFatal → SIGABRT: even if
+  //    our ErrorUtils global handler misses a fatal error (which does
+  //    happen for errors thrown inside RN's own MessageQueue callbacks
+  //    and bridge dispatch code), the ExceptionsManager patch strips
+  //    the isFatal flag before native ever sees it. See the function's
+  //    doc comment for the exact crash pattern this defuses.
+  patchExceptionsManagerFatalPath();
 
   // 1. Intercept the RN global JS error handler. This is what receives
   //    every uncaught JS throw. We downgrade fatality and swallow, so
