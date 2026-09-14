@@ -33,6 +33,10 @@
       "android": {
         "buildType": "app-bundle",
         "autoIncrement": "versionCode"
+      },
+      "node": "22.15.0",
+      "env": {
+        "YARN_IGNORE_ENGINES": "true"
       }
     }
   },
