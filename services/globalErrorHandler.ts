@@ -7,140 +7,233 @@
  * `com.facebook.react.ExceptionsManagerQueue` and terminates the
  * process with SIGABRT.
  *
- * The Build 18 crash log showed exactly that path:
- *     Thread 5 (ExceptionsManagerQueue)
- *       → __cxa_rethrow
- *       → objc_exception_rethrow
- *       → abort()
+ * ─────────────────────────────────────────────────────────────────
+ * BUILD 32 CRITICAL REWRITE (iOS 27 crash mitigation)
+ * ─────────────────────────────────────────────────────────────────
  *
- * That happens when React Native's default global JS error handler
- * receives an error flagged `isFatal = true` and forwards it to native.
- * By installing our own handler BEFORE any other JS runs, we downgrade
- * every JS error to non-fatal, log it locally, forward it to Sentry
- * (if configured), and keep the app running.
+ * Build 31 shipped a patch that forced `isFatal: false` before
+ * forwarding calls to native `RCTExceptionsManager.reportException`.
+ * That patch STILL crashed on iPhone 17 Pro Max running iOS 27.0
+ * with the same signature:
  *
- * A crash during boot is far worse UX than a silently degraded feature.
- * The ErrorBoundary continues to catch render errors and show the
- * themed fallback UI; this handler is the last line of defense for
- * async errors, event-handler errors, and unhandled rejections that
- * live outside the React render tree.
+ *   Thread N (com.facebook.react.ExceptionsManagerQueue)
+ *     __pthread_kill
+ *     abort
+ *     __abort_message
+ *     demangling_terminate_handler()
+ *     _objc_terminate()
+ *     std::__terminate
+ *     __cxa_rethrow
+ *     objc_exception_rethrow           ← native @catch rethrew
+ *     ScreamFinder+4727848              ← RCTModuleMethod dispatch
+ *     ScreamFinder+4726340
+ *     _dispatch_call_block_and_release
+ *
+ * Root cause: iOS 27 tightened NSInvocation / JSI marshalling paths.
+ * Even with `isFatal: false`, `-[RCTExceptionsManager reportException:]`
+ * itself raises an NSException on iOS 27 while unpacking the payload
+ * (stack frame validation, message coercion, or the new
+ * NSExceptionTerminating hook). The bridge's outer `@catch` sees an
+ * exception name matching its known-fatal list and unconditionally
+ * `@throw`s (that's the `objc_exception_rethrow` in the trace).
+ * Nothing above catches it → `_objc_terminate` → SIGABRT.
+ *
+ * Conclusion: any call from JS into native ExceptionsManager on
+ * iOS 27 is unsafe. `isFatal: false` is not enough — we must
+ * NEVER invoke the native module at all.
+ *
+ * FIX: fully defuse every `NativeModules.ExceptionsManager` method
+ * with no-op JS stubs. Errors are still logged locally and forwarded
+ * to Sentry (if configured); only the native bridge invocation is
+ * skipped. LogBox / red-box is DEV-only and unaffected in production.
+ *
+ * Belt-and-suspenders: also install a JS-side global `ErrorUtils`
+ * handler that swallows uncaught errors before RN's own default
+ * handler tries to route them through ExceptionsManager, and patch
+ * `TurboModuleRegistry.get('ExceptionsManager')` in case that returns
+ * a different object than `NativeModules.ExceptionsManager`.
  */
 
 import { captureException } from './errorReportingService';
 
 let installed = false;
 
-/**
- * BUILD 28 CRITICAL DEFENSE: Monkey-patch
- * `NativeModules.ExceptionsManager.reportException` (and the legacy
- * `reportFatalException`) to force `isFatal: false` on every call.
- *
- * Why: The Xcode Organizer crash from Build 21 (iPhone 17 Pro, iOS
- * 26.6) — and the pattern Apple has repeatedly hit on iPhone 17 Pro
- * Max iOS 27.0 — shows this exact backtrace:
- *
- *   Thread 6 (dispatch queue)
- *     __exceptionPreprocess
- *     objc_exception_throw
- *     RCTFatal                                       ← the abort trigger
- *     -[RCTExceptionsManager reportFatal:...]
- *     -[RCTExceptionsManager reportException:]       ← JS→native call
- *     RCTNativeModule::invoke                        ← bridge dispatch
- *
- * The chain is: JS throws → RN's framework (MessageQueue,
- * timers, event handlers) internally calls
- * `NativeExceptionsManager.reportException({isFatal:true, ...})` →
- * native sees isFatal=true → calls RCTFatal → NSException → SIGABRT.
- *
- * Our `ErrorUtils.setGlobalHandler` override does NOT intercept this
- * path because it fires from RN's own bridge callback code, not from
- * the "uncaught error" path that ErrorUtils covers.
- *
- * By patching `reportException` at the NativeModules boundary, we
- * intercept every possible caller — framework, third-party library,
- * or our own code — and strip the isFatal flag before native ever
- * receives it. The error is still logged to Sentry (via our
- * globalErrorHandler + captureException) and the DEV LogBox. Only
- * the abort path is defused.
- */
-function patchExceptionsManagerFatalPath(): void {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function safeStringify(v: any): string {
   try {
-    // Lazy require so a broken react-native import cannot crash the
-    // globalErrorHandler module load itself.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const RN = require('react-native');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const NM: any = RN?.NativeModules;
-    if (!NM) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const em: any = NM.ExceptionsManager;
-    if (!em || em.__sfFatalPatched) return;
+    if (v == null) return 'null';
+    if (typeof v === 'string') return v;
+    if (typeof v === 'object') {
+      if (v.message) return String(v.message);
+      return JSON.stringify(v);
+    }
+    return String(v);
+  } catch {
+    return '[unstringifiable]';
+  }
+}
 
-    // 1. `reportException` — the modern (RN 0.60+) path. JS builds a
+/**
+ * Replace every method on the native ExceptionsManager wrapper with a
+ * no-op JS stub. This is the ONLY thing standing between a JS throw
+ * and the iOS 27 RCTFatal → NSException → abort() path.
+ *
+ * We do not call the original bridge method under any circumstance.
+ * If native ExceptionsManager is fundamentally broken on iOS 27 (which
+ * Build 31's crash proves), preserving the isFatal=false code path
+ * still triggers the abort. Total isolation is the only safe posture.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function defuseExceptionsManagerObject(em: any, source: string): boolean {
+  if (!em || em.__sfDefused) return false;
+  try {
+    // 1. `reportException` — modern (RN 0.60+) path. JS builds a
     //    payload object with `{message, originalMessage, name, stack,
-    //    id, isFatal, extraData}` and calls this method. Native's
-    //    implementation checks `errorData.isFatal` and, if true, calls
-    //    RCTFatal(). We copy the payload and force isFatal=false so
-    //    native never takes the RCTFatal branch.
-    if (typeof em.reportException === 'function') {
-      const origReport = em.reportException.bind(em);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      em.reportException = (errorData: any) => {
-        try {
-          const safeData = errorData
-            ? { ...errorData, isFatal: false }
-            : { isFatal: false };
-          return origReport(safeData);
-        } catch {
-          /* bridge call itself threw — swallow so the patch never
-             becomes the crash source it is meant to prevent */
+    //    id, isFatal, extraData}` and calls this method. We log JS-
+    //    side and return without touching native.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    em.reportException = (errorData: any) => {
+      try {
+        if (__DEV__) {
+          console.warn(
+            `[ExceptionsManager defused:${source}] reportException`,
+            safeStringify(errorData?.message),
+          );
         }
-      };
-    }
-
-    // 2. `reportFatalException` — the legacy (pre-0.60) path some
-    //    libraries still call directly. Route it through
-    //    `reportSoftException` if available, or drop it entirely.
-    if (typeof em.reportFatalException === 'function') {
-      const softHandler =
-        typeof em.reportSoftException === 'function'
-          ? em.reportSoftException.bind(em)
-          : null;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      em.reportFatalException = (
-        message: any,
-        stack: any,
-        exceptionId: any,
-      ) => {
+        // Forward to Sentry / console but NEVER to native.
         try {
-          if (softHandler) {
-            return softHandler(message, stack, exceptionId);
+          const err = new Error(
+            safeStringify(errorData?.message || errorData?.originalMessage || 'JS Exception'),
+          );
+          if (errorData?.stack) {
+            try {
+              err.stack = Array.isArray(errorData.stack)
+                ? errorData.stack.map((f: any) => safeStringify(f)).join('\n')
+                : safeStringify(errorData.stack);
+            } catch {
+              /* ignore stack coercion errors */
+            }
           }
-          if (__DEV__) {
-            console.error(
-              '[ExceptionsManager patched] fatal downgraded:',
-              message,
-            );
-          }
+          captureException(err, {
+            source: 'ExceptionsManager.reportException',
+            isFatal: !!errorData?.isFatal,
+          });
         } catch {
-          /* swallow */
+          /* reporting is best-effort; a broken Sentry must not crash */
         }
-      };
-    }
+      } catch {
+        /* the defused stub must NEVER throw */
+      }
+    };
 
-    em.__sfFatalPatched = true;
+    // 2. `reportFatalException` — legacy (pre-0.60) path some libraries
+    //    still call directly. Full no-op.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    em.reportFatalException = (message: any, _stack: any, _exceptionId: any) => {
+      try {
+        if (__DEV__) {
+          console.warn(
+            `[ExceptionsManager defused:${source}] reportFatalException`,
+            safeStringify(message),
+          );
+        }
+        try {
+          captureException(new Error(safeStringify(message)), {
+            source: 'ExceptionsManager.reportFatalException',
+            isFatal: true,
+          });
+        } catch {
+          /* ignore */
+        }
+      } catch {
+        /* never throw */
+      }
+    };
+
+    // 3. `reportSoftException` — the "just log it" path. Some Hermes
+    //    tooling routes benign warnings through here. Full no-op.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    em.reportSoftException = (message: any, _stack: any, _exceptionId: any) => {
+      try {
+        if (__DEV__) {
+          console.warn(
+            `[ExceptionsManager defused:${source}] reportSoftException`,
+            safeStringify(message),
+          );
+        }
+      } catch {
+        /* never throw */
+      }
+    };
+
+    // 4. Other methods that dispatch on the same queue. Any call to
+    //    these could also trip the iOS 27 native bug on this queue,
+    //    so we no-op them too.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    em.updateExceptionMessage = (_message: any, _stack: any, _exceptionId: any) => {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    em.dismissRedbox = () => {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    em.reportExtraData = (_extraData: any, _exceptionId: any) => {};
+
+    em.__sfDefused = true;
 
     if (__DEV__) {
       console.log(
-        '[GlobalErrorHandler] ExceptionsManager reportException patched — RCTFatal path defused.',
+        `[GlobalErrorHandler] ExceptionsManager fully defused (source=${source}). No native RCTExceptionsManager calls will ever be made from this JS runtime.`,
       );
     }
+    return true;
   } catch (e) {
     if (__DEV__) {
       console.warn(
-        '[GlobalErrorHandler] ExceptionsManager patch failed',
+        `[GlobalErrorHandler] Failed to defuse ExceptionsManager (source=${source}):`,
         e,
       );
+    }
+    return false;
+  }
+}
+
+/**
+ * Try to defuse every JS reference to the native ExceptionsManager we
+ * can find. In RN 0.79 legacy architecture the two normal paths are:
+ *
+ *   a) `NativeModules.ExceptionsManager`
+ *   b) `TurboModuleRegistry.get('ExceptionsManager')`
+ *
+ * They usually return the same object but we cannot rely on that on
+ * every RN patch level, so we handle both. Any additional lookup path
+ * a future RN release adds is not covered here, but every current
+ * caller in the RN codebase funnels through one of these two.
+ */
+function defuseAllExceptionsManagerRefs(): void {
+  // (a) NativeModules.ExceptionsManager
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const RN = require('react-native');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const em: any = RN?.NativeModules?.ExceptionsManager;
+    defuseExceptionsManagerObject(em, 'NativeModules');
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[GlobalErrorHandler] NativeModules access threw', e);
+    }
+  }
+
+  // (b) TurboModuleRegistry.get('ExceptionsManager')
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const TMR = require('react-native/Libraries/TurboModule/TurboModuleRegistry');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const em: any = TMR?.get?.('ExceptionsManager');
+    // If it's the same object we already defused, __sfDefused is true
+    // and defuseExceptionsManagerObject bails cleanly. Otherwise we
+    // patch a distinct wrapper.
+    defuseExceptionsManagerObject(em, 'TurboModuleRegistry');
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[GlobalErrorHandler] TurboModuleRegistry access threw', e);
     }
   }
 }
@@ -150,6 +243,8 @@ function patchExceptionsManagerFatalPath(): void {
 type RNErrorUtils = {
   setGlobalHandler: (fn: (error: Error, isFatal?: boolean) => void) => void;
   getGlobalHandler: () => (error: Error, isFatal?: boolean) => void;
+  reportError?: (error: Error) => void;
+  reportFatalError?: (error: Error) => void;
 };
 
 function getErrorUtils(): RNErrorUtils | null {
@@ -177,18 +272,37 @@ export function installGlobalErrorHandlers(): void {
   if (installed) return;
   installed = true;
 
-  // 0. Patch ExceptionsManager FIRST, before anything else. This is
-  //    the last line of defense against RCTFatal → SIGABRT: even if
-  //    our ErrorUtils global handler misses a fatal error (which does
-  //    happen for errors thrown inside RN's own MessageQueue callbacks
-  //    and bridge dispatch code), the ExceptionsManager patch strips
-  //    the isFatal flag before native ever sees it. See the function's
-  //    doc comment for the exact crash pattern this defuses.
-  patchExceptionsManagerFatalPath();
+  // 0. DEFUSE ExceptionsManager FIRST, before anything else. This is
+  //    the last line of defense against RCTFatal → SIGABRT on iOS 27:
+  //    even if our ErrorUtils global handler misses a fatal error
+  //    (which does happen for errors thrown inside RN's own
+  //    MessageQueue callbacks and bridge dispatch code), the defused
+  //    ExceptionsManager guarantees no native invocation happens on
+  //    the ExceptionsManagerQueue. See the module doc comment for the
+  //    exact crash pattern this defuses.
+  defuseAllExceptionsManagerRefs();
+
+  // 0.5. Schedule a second defuse pass on the next tick. In some
+  //      RN boot sequences, `TurboModuleRegistry.get('ExceptionsManager')`
+  //      returns null on the very first synchronous access (the native
+  //      module hasn't finished registering yet). A second pass a tick
+  //      later catches those cases so no ExceptionsManager reference
+  //      ever remains un-defused.
+  try {
+    setTimeout(() => {
+      try {
+        defuseAllExceptionsManagerRefs();
+      } catch {
+        /* never throw */
+      }
+    }, 0);
+  } catch {
+    /* setTimeout is defined in every JS runtime we ship on */
+  }
 
   // 1. Intercept the RN global JS error handler. This is what receives
-  //    every uncaught JS throw. We downgrade fatality and swallow, so
-  //    RCTFatal / RCTExceptionsManager never fires abort() on us.
+  //    every uncaught JS throw. We swallow so RN's default handler
+  //    (which routes through ExceptionsManager) never fires.
   try {
     const eu = getErrorUtils();
     if (eu) {
@@ -205,17 +319,7 @@ export function installGlobalErrorHandlers(): void {
           const err =
             error instanceof Error
               ? error
-              : new Error(
-                  typeof error === 'string'
-                    ? error
-                    : (() => {
-                        try {
-                          return JSON.stringify(error);
-                        } catch {
-                          return 'Unknown error';
-                        }
-                      })(),
-                );
+              : new Error(safeStringify(error));
 
           if (__DEV__) {
             console.error(
@@ -258,6 +362,50 @@ export function installGlobalErrorHandlers(): void {
     if (__DEV__) console.warn('[GlobalErrorHandler] setGlobalHandler failed', e);
   }
 
+  // 1.5. Additionally override `ErrorUtils.reportError` / `reportFatalError`.
+  //      Some libraries (and RN's own internals) bypass the global
+  //      handler and call these directly. Both route through
+  //      ExceptionsManager if we don't intercept.
+  try {
+    const eu = getErrorUtils();
+    if (eu) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (eu as any).reportError = (error: Error) => {
+        try {
+          if (__DEV__) console.warn('[GlobalErrorHandler] reportError:', error);
+          try {
+            captureException(
+              error instanceof Error ? error : new Error(safeStringify(error)),
+              { source: 'ErrorUtils.reportError' },
+            );
+          } catch {
+            /* ignore */
+          }
+        } catch {
+          /* never throw */
+        }
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (eu as any).reportFatalError = (error: Error) => {
+        try {
+          if (__DEV__) console.warn('[GlobalErrorHandler] reportFatalError:', error);
+          try {
+            captureException(
+              error instanceof Error ? error : new Error(safeStringify(error)),
+              { source: 'ErrorUtils.reportFatalError', isFatal: true },
+            );
+          } catch {
+            /* ignore */
+          }
+        } catch {
+          /* never throw */
+        }
+      };
+    }
+  } catch (e) {
+    if (__DEV__) console.warn('[GlobalErrorHandler] reportError override failed', e);
+  }
+
   // 2. Intercept unhandled promise rejections. On modern Hermes these
   //    fire an `unhandledrejection` event on globalThis just like the
   //    browser. On older RN versions they route through Promise's
@@ -272,17 +420,7 @@ export function installGlobalErrorHandlers(): void {
           const err =
             reason instanceof Error
               ? reason
-              : new Error(
-                  typeof reason === 'string'
-                    ? reason
-                    : (() => {
-                        try {
-                          return JSON.stringify(reason);
-                        } catch {
-                          return 'Unhandled promise rejection';
-                        }
-                      })(),
-                );
+              : new Error(safeStringify(reason));
           if (__DEV__) {
             console.warn('[GlobalErrorHandler] Unhandled rejection:', err);
           }
@@ -318,17 +456,7 @@ export function installGlobalErrorHandlers(): void {
               const err =
                 rejection instanceof Error
                   ? rejection
-                  : new Error(
-                      typeof rejection === 'string'
-                        ? rejection
-                        : (() => {
-                            try {
-                              return JSON.stringify(rejection);
-                            } catch {
-                              return `Unhandled promise rejection (id ${id})`;
-                            }
-                          })(),
-                    );
+                  : new Error(safeStringify(rejection) || `Unhandled promise rejection (id ${id})`);
               if (__DEV__) {
                 console.warn(
                   `[GlobalErrorHandler] Hermes unhandled rejection ${id}:`,
