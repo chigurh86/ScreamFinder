@@ -537,6 +537,11 @@ export function installGlobalErrorHandlers(): void {
 // defuseAllExceptionsManagerRefs so the web bundle no longer tries
 // to `require('react-native/Libraries/TurboModule/TurboModuleRegistry')`,
 // which triggered Metro's fb-batched-bridge-config-web fatal.
+//
+// 2026-10-07 (b): no-op touch to force a clean Metro toolchain
+// reinstall after a transient `metro-inspector-proxy has no version`
+// build error. The error originates in the installed Metro package
+// manifest and cannot be repaired from project source.
 try {
   installGlobalErrorHandlers();
 } catch {
