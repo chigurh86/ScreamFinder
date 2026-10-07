@@ -542,6 +542,12 @@ export function installGlobalErrorHandlers(): void {
 // reinstall after a transient `metro-inspector-proxy has no version`
 // build error. The error originates in the installed Metro package
 // manifest and cannot be repaired from project source.
+//
+// 2026-10-07 (c): second no-op touch after a follow-up Metro mismatch
+// (`metro-react-native-babel-transformer@0.81.0 is not present in the
+// template`). Same root cause — the installed Metro package tree does
+// not match the Expo template's expected version set. Not fixable from
+// app code; requires a full dependency reinstall at the build host.
 try {
   installGlobalErrorHandlers();
 } catch {
