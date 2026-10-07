@@ -58,6 +58,32 @@ import { captureException } from './errorReportingService';
 
 let installed = false;
 
+/**
+ * Detect whether we are running inside a browser-like environment
+ * (Expo Web / React Native Web). On web there is no native bridge,
+ * no RCTExceptionsManager, and no TurboModuleRegistry — attempting to
+ * `require()` those native-only modules triggers Metro's
+ * "importing from react-native instead of react-native-web" fatal
+ * error, which is exactly what this handler is supposed to prevent.
+ *
+ * We detect web via `document`/`window` globals rather than importing
+ * `Platform` from react-native, so this detection itself cannot
+ * trigger the same fatal we're guarding against.
+ */
+function isWebRuntime(): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g: any = globalThis as any;
+    return (
+      typeof g.document !== 'undefined' &&
+      typeof g.window !== 'undefined' &&
+      typeof g.navigator !== 'undefined'
+    );
+  } catch {
+    return false;
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function safeStringify(v: any): string {
   try {
@@ -208,6 +234,17 @@ function defuseExceptionsManagerObject(em: any, source: string): boolean {
  * caller in the RN codebase funnels through one of these two.
  */
 function defuseAllExceptionsManagerRefs(): void {
+  // No-op on web. react-native-web has no RCTExceptionsManager and no
+  // TurboModuleRegistry. Requiring those native-only paths from a web
+  // bundle triggers Metro's fatal "importing from react-native instead
+  // of react-native-web" error (expo.fyi/fb-batched-bridge-config-web),
+  // which is exactly the kind of crash this handler exists to prevent.
+  // The iOS 27 ExceptionsManagerQueue crash this function defuses
+  // simply does not exist on web.
+  if (isWebRuntime()) {
+    return;
+  }
+
   // (a) NativeModules.ExceptionsManager
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -287,17 +324,20 @@ export function installGlobalErrorHandlers(): void {
   //      returns null on the very first synchronous access (the native
   //      module hasn't finished registering yet). A second pass a tick
   //      later catches those cases so no ExceptionsManager reference
-  //      ever remains un-defused.
-  try {
-    setTimeout(() => {
-      try {
-        defuseAllExceptionsManagerRefs();
-      } catch {
-        /* never throw */
-      }
-    }, 0);
-  } catch {
-    /* setTimeout is defined in every JS runtime we ship on */
+  //      ever remains un-defused. Skipped on web entirely — see
+  //      `defuseAllExceptionsManagerRefs` for the full explanation.
+  if (!isWebRuntime()) {
+    try {
+      setTimeout(() => {
+        try {
+          defuseAllExceptionsManagerRefs();
+        } catch {
+          /* never throw */
+        }
+      }, 0);
+    } catch {
+      /* setTimeout is defined in every JS runtime we ship on */
+    }
   }
 
   // 1. Intercept the RN global JS error handler. This is what receives
