@@ -164,7 +164,7 @@ export default function VersionPickerModal({
 
           {/* Footer */}
           <Pressable onPress={handleClose} style={styles.cancelButton}>
-            <Text style={styles.cancelText}>Not sure \u2014 just search</Text>
+            <Text style={styles.cancelText}>{'Not sure \u2014 just search'}</Text>
           </Pressable>
         </Animated.View>
       </View>
