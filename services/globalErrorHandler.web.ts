@@ -1,3 +1,9 @@
+// 2026-10-07 (d): no-op touch to force a fresh dependency re-resolution
+// in the OnSpace build environment. The compilation error
+// `_WebSupportProjectPrerequisite.WebSupportProjectPrerequisite is not a
+// constructor` originates inside @expo/cli@0.24.15 in the pnpm store
+// and cannot be fixed from app code.
+
 /**
  * Web-only global error handler.
  *
