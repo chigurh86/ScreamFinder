@@ -34,7 +34,10 @@ import { fetchRecommendations, enrichWithPosters } from '../../services/recommen
 import type { Movie } from '../../services/recommendationService';
 import MovieCard from '../../components/feature/MovieCard';
 import UpgradeModal from '../../components/feature/UpgradeModal';
+import VersionPickerModal from '../../components/feature/VersionPickerModal';
 import { fetchPosters, fetchPostersAndProviders } from '../../services/posterService';
+import { fetchMovieVersions } from '../../services/versionService';
+import type { MovieVersion } from '../../services/versionService';
 
 // BUILD 25 FIX: `Dimensions.get('window')` intentionally NOT called at
 // module scope. Apple rejected Build 24 with a launch crash on iPad Air
@@ -205,6 +208,15 @@ export default function HomeScreen() {
   const [searchedProviders, setSearchedProviders] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState(() => getRandomSuggestions());
 
+  // Version-picker state. When a title has 2+ distinct TMDB matches we
+  // surface them in a modal so users can pick the exact release they
+  // meant (e.g. The Thing 1982 vs The Thing 2011) rather than letting
+  // the backend guess.
+  const [showVersionPicker, setShowVersionPicker] = useState(false);
+  const [versionCandidates, setVersionCandidates] = useState<MovieVersion[]>([]);
+  const [pendingSearchTitle, setPendingSearchTitle] = useState('');
+  const [isCheckingVersions, setIsCheckingVersions] = useState(false);
+
   useEffect(() => {
     fetchPosters(suggestions).then((posters) => {
       setSuggestionPosters(posters);
@@ -212,7 +224,11 @@ export default function HomeScreen() {
   }, [suggestions]);
 
   const doSearch = useCallback(
-    async (title: string, specifiedYear?: number | null) => {
+    async (
+      title: string,
+      specifiedYear?: number | null,
+      preselected?: { posterUrl: string | null; overview?: string; type?: 'movie' | 'tv' } | null,
+    ) => {
       if (isAtLimit) {
         setShowUpgrade(true);
         return;
@@ -220,7 +236,9 @@ export default function HomeScreen() {
 
       setIsLoading(true);
       setSearchedTitle(title);
-      setSearchedPoster(null);
+      // If the user picked a specific version, trust its poster so the
+      // "You searched for" card never flashes a wrong-year thumbnail.
+      setSearchedPoster(preselected?.posterUrl ?? null);
       setSearchedYear(specifiedYear || null);
       setSearchedProviders([]);
       setResults([]);
@@ -232,8 +250,14 @@ export default function HomeScreen() {
       // Pass year: 0 when unknown so pickBestMatch falls back to popularity —
       // otherwise TMDB would score famous old titles against the current year
       // and pick an obscure recent movie with the same name.
-      fetchPostersAndProviders([{ title, year: specifiedYear || 0, type: 'movie' }]).then((result) => {
-        if (result.posters[title]) setSearchedPoster(result.posters[title]);
+      const posterLookupType = preselected?.type || 'movie';
+      fetchPostersAndProviders([
+        { title, year: specifiedYear || 0, type: posterLookupType },
+      ]).then((result) => {
+        // Only overwrite the preselected poster if we didn't already have one.
+        if (!preselected?.posterUrl && result.posters[title]) {
+          setSearchedPoster(result.posters[title]);
+        }
         if (result.providers[title]) setSearchedProviders(result.providers[title]);
       });
 
@@ -281,7 +305,7 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [searchedTitle, isLoading, savedMovies]);
 
-  const handleSearch = useCallback(() => {
+  const handleSearch = useCallback(async () => {
     if (!query.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -291,8 +315,69 @@ export default function HomeScreen() {
     const finalTitle = parsed.year ? parsed.title : query.trim();
     const finalYear = parsed.year;
 
-    doSearch(finalTitle, finalYear);
-  }, [query, doSearch]);
+    // When the user already specified a year in the query, skip the
+    // version picker entirely — they've already disambiguated.
+    if (finalYear) {
+      doSearch(finalTitle, finalYear);
+      return;
+    }
+
+    // Pre-flight: hit TMDB first to see if the title is ambiguous (e.g.
+    // multiple remakes with the same name). If 2+ legitimate matches
+    // exist, prompt the user to pick which release they meant. This
+    // call does NOT consume a free-tier search credit — the credit is
+    // only decremented inside doSearch(), which runs after selection.
+    if (isAtLimit) {
+      setShowUpgrade(true);
+      return;
+    }
+
+    setIsCheckingVersions(true);
+    const { versions } = await fetchMovieVersions(finalTitle);
+    setIsCheckingVersions(false);
+
+    if (versions.length >= 2) {
+      setVersionCandidates(versions);
+      setPendingSearchTitle(finalTitle);
+      setShowVersionPicker(true);
+      return;
+    }
+
+    // 0 or 1 match → proceed as before, forwarding whatever metadata
+    // we did find so the "You searched for" card gets the right poster.
+    const single = versions[0];
+    doSearch(
+      finalTitle,
+      single?.year ?? null,
+      single
+        ? { posterUrl: single.posterUrl, overview: single.overview, type: single.type }
+        : null,
+    );
+  }, [query, doSearch, isAtLimit]);
+
+  const handleVersionSelected = useCallback(
+    (version: MovieVersion) => {
+      setShowVersionPicker(false);
+      // Give the modal animation a beat to close so the search UI
+      // transition feels smooth rather than jumping on top of a
+      // dismissing modal.
+      setTimeout(() => {
+        doSearch(version.title, version.year ?? null, {
+          posterUrl: version.posterUrl,
+          overview: version.overview,
+          type: version.type,
+        });
+      }, 150);
+    },
+    [doSearch],
+  );
+
+  const handleVersionPickerCancel = useCallback(() => {
+    setShowVersionPicker(false);
+    // Caller may want to still run a generic search without a year —
+    // leave that to a dedicated "not sure" fallback instead of silently
+    // running a search they didn't confirm.
+  }, []);
 
   const handleLoadMore = useCallback(async () => {
     if (loadingMoreRef.current || !searchedTitle || isLoading) return;
@@ -447,12 +532,12 @@ export default function HomeScreen() {
               style={({ pressed }) => [
                 styles.searchButton,
                 pressed && styles.searchButtonPressed,
-                isLoading && styles.searchButtonDisabled,
+                (isLoading || isCheckingVersions) && styles.searchButtonDisabled,
               ]}
               onPress={handleSearch}
-              disabled={isLoading || !query.trim()}
+              disabled={isLoading || isCheckingVersions || !query.trim()}
             >
-              {isLoading ? (
+              {isLoading || isCheckingVersions ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={styles.searchButtonText}>Find Scares</Text>
@@ -634,6 +719,17 @@ export default function HomeScreen() {
         visible={showUpgrade}
         onClose={() => setShowUpgrade(false)}
         dailyLimit={FREE_DAILY_LIMIT}
+      />
+
+      {/* Version Picker Modal: shown when a search matches multiple
+          movies/TV shows with the same title so the user can pick the
+          exact release (e.g. The Thing 1982 vs 2011). */}
+      <VersionPickerModal
+        visible={showVersionPicker}
+        title={pendingSearchTitle}
+        versions={versionCandidates}
+        onSelect={handleVersionSelected}
+        onClose={handleVersionPickerCancel}
       />
     </SafeAreaView>
   );
