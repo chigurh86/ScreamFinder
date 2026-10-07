@@ -532,6 +532,11 @@ export function installGlobalErrorHandlers(): void {
 // AppContext, expo-router, template auth, or any third-party module
 // are intercepted and downgraded to non-fatal before RN's RCTFatal path
 // can abort() the process.
+//
+// 2026-10-07: added `isWebRuntime()` early return in
+// defuseAllExceptionsManagerRefs so the web bundle no longer tries
+// to `require('react-native/Libraries/TurboModule/TurboModuleRegistry')`,
+// which triggered Metro's fb-batched-bridge-config-web fatal.
 try {
   installGlobalErrorHandlers();
 } catch {
